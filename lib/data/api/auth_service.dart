@@ -9,19 +9,29 @@ class AuthService {
   Future<AuthResponse> login(UserCredentials credentials) async {
     final response = await http.post(
       Uri.parse('$_baseUrl$_loginEndpoint'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
       body: jsonEncode(credentials.toJson()),
     );
+
+    print('Status: ${response.statusCode}');
+    print('Body: ${response.body}');
+    print('Headers: ${response.headers}');
 
     if (response.statusCode != 200) {
       throw Exception('Ошибка авторизации: ${response.statusCode}');
     }
 
-    // В реальном приложении здесь нужно извлечь JWT и EVOSESSIONID
-    // из ответа сервера и куков
+    // Вариант: попробовать получить JWT из тела или headers (если вдруг сервер всё же отдаёт)
+    final jwtToken = 'TODO: parse from response.body or headers';
+    final evoSessionId = 'TODO: parse from response.headers["set-cookie"]';
+
     return AuthResponse(
-      jwtToken: 'dummy_jwt_token', // Замените на реальное извлечение
-      evoSessionId: 'dummy_evo_session', // Замените на реальное извлечение
+      jwtToken: jwtToken,
+      evoSessionId: evoSessionId,
     );
   }
-} 
+}

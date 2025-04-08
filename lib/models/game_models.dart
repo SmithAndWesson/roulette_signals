@@ -8,15 +8,15 @@ class UserCredentials {
   });
 
   Map<String, dynamic> toJson() => {
-    'user': {
-      'email': email,
-      'password': password,
-    },
-    'application': {
-      'type': 'desktop',
-      'id': null,
-    },
-  };
+        'user': {
+          'email': email,
+          'password': password,
+        },
+        'application': {
+          'type': 'desktop',
+          'id': null,
+        },
+      };
 }
 
 class AuthResponse {
@@ -69,4 +69,4 @@ class Signal {
     final numbers = lastNumbers.join(', ');
     return '🎰 Сигнал рулетки! $number-я $typeName не выпадала $missingRounds раз. Последние числа: $numbers';
   }
-} 
+}

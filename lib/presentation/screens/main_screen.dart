@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:assets_audio_player/assets_audio_player.dart';
 import 'package:roulette_signals/data/telegram/telegram_service.dart';
 import 'package:roulette_signals/data/websocket/lobby_socket.dart';
 import 'package:roulette_signals/data/websocket/table_socket.dart';
 import 'package:roulette_signals/domain/logic/signal_engine.dart';
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/utils/sound_player.dart';
 
 class MainScreen extends StatefulWidget {
   final AuthResponse authResponse;
@@ -23,7 +23,7 @@ class _MainScreenState extends State<MainScreen> {
   late TableSocket _tableSocket;
   late SignalEngine _signalEngine;
   late TelegramService _telegramService;
-  final _audioPlayer = AssetsAudioPlayer();
+  final _soundPlayer = SoundPlayer();
   final List<RouletteNumber> _numbers = [];
   final List<Signal> _signals = [];
 
@@ -77,9 +77,7 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     // Воспроизведение звука
-    await _audioPlayer.open(
-      Audio('assets/sounds/alert.mp3'),
-    );
+    await _soundPlayer.playPing();
 
     // Отправка в Telegram
     try {
@@ -103,7 +101,7 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _lobbySocket.disconnect();
     _tableSocket.disconnect();
-    _audioPlayer.dispose();
+    _soundPlayer.dispose();
     super.dispose();
   }
 

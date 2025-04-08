@@ -1,107 +1,145 @@
 import 'package:flutter/material.dart';
-import 'package:roulette_signals/data/api/auth_service.dart';
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:webview_windows/webview_windows.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(AuthResponse) onLoginSuccess;
 
-  const LoginScreen({
-    Key? key,
-    required this.onLoginSuccess,
-  }) : super(key: key);
+  const LoginScreen({Key? key, required this.onLoginSuccess}) : super(key: key);
 
   @override
-  _LoginScreenState createState() => _LoginScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _authService = AuthService();
-  bool _isLoading = false;
+  final _controller = WebviewController();
+  bool _isInitialized = false;
+  String? _jwtToken;
+  String? _evoSessionId;
+  bool _isLoading = true;
 
   @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _initWebView();
   }
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isLoading = true);
-
+  Future<void> _initWebView() async {
     try {
-      final response = await _authService.login(
-        UserCredentials(
-          email: _emailController.text,
-          password: _passwordController.text,
+      await _controller.initialize();
+      await _controller.setBackgroundColor(Colors.white);
+      await _controller.loadUrl('https://gizbo.casino');
+
+      // Слушаем изменения URL
+      _controller.url.listen((url) {
+        _checkAuthStatus();
+      });
+
+      // Слушаем загрузку страницы
+      _controller.loadingState.listen((state) {
+        setState(() {
+          _isLoading = state == LoadingState.loading;
+        });
+        if (state == LoadingState.navigationCompleted) {
+          _checkAuthStatus();
+        }
+      });
+
+      setState(() => _isInitialized = true);
+    } catch (e) {
+      print('Ошибка инициализации WebView: $e');
+    }
+  }
+
+  Future<void> _checkAuthStatus() async {
+    try {
+      // Получаем JWT из localStorage
+      final jwtResult = await _controller.executeScript(
+        'localStorage.getItem("JWT_AUTH")',
+      );
+
+      // Получаем все куки
+      final cookieResult = await _controller.executeScript(
+        'document.cookie',
+      );
+
+      // Извлекаем EVOSESSIONID из куков
+      final evoSessionId = _extractEvoSessionId(_cleanResult(cookieResult));
+      final jwtToken = _cleanResult(jwtResult);
+
+      if (evoSessionId != null && jwtToken.isNotEmpty) {
+        setState(() {
+          _evoSessionId = evoSessionId;
+          _jwtToken = jwtToken;
+        });
+      }
+    } catch (e) {
+      print('Ошибка проверки авторизации: $e');
+    }
+  }
+
+  String? _extractEvoSessionId(String cookies) {
+    final pattern = RegExp(r'EVOSESSIONID=([^;]+)');
+    final match = pattern.firstMatch(cookies);
+    return match?.group(1);
+  }
+
+  String _cleanResult(String result) {
+    return result.replaceAll('"', '').trim();
+  }
+
+  void _onContinue() {
+    if (_jwtToken != null && _evoSessionId != null) {
+      widget.onLoginSuccess(
+        AuthResponse(
+          jwtToken: _jwtToken!,
+          evoSessionId: _evoSessionId!,
         ),
       );
-      widget.onLoginSuccess(response);
-    } catch (e) {
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка авторизации 123: $e')),
+        const SnackBar(
+          content: Text('Токены не получены. Пожалуйста, войдите в систему.'),
+        ),
       );
-    } finally {
-      setState(() => _isLoading = false);
     }
   }
 
   @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    
     return Scaffold(
-      appBar: AppBar(title: const Text('Авторизация')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Введите email';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Пароль',
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Введите пароль';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _login,
-                child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : const Text('Войти'),
-              ),
-            ],
-          ),
-        ),
+      appBar: AppBar(
+        title: const Text('Вход через WebView (Windows)'),
+        actions: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(),
+            ),
+        ],
+      ),
+      body: _isInitialized
+          ? Stack(
+              children: [
+                Webview(_controller),
+                if (_isLoading)
+                  const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+              ],
+            )
+          : const Center(child: CircularProgressIndicator()),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _onContinue,
+        label: const Text('Продолжить'),
+        icon: const Icon(Icons.login),
       ),
     );
   }
-} 
+}
