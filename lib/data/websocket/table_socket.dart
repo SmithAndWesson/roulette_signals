@@ -1,5 +1,6 @@
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/utils/logger.dart';
 
 class TableSocket {
   final String tableId;
@@ -25,10 +26,10 @@ class TableSocket {
         _handleMessage(message);
       },
       onError: (error) {
-        print('WebSocket error: $error');
+        Logger.error('Ошибка WebSocket', error);
       },
       onDone: () {
-        print('WebSocket connection closed');
+        Logger.warning('Соединение WebSocket закрыто');
       },
     );
   }
@@ -36,8 +37,8 @@ class TableSocket {
   void _handleMessage(dynamic message) {
     try {
       final data = message as Map<String, dynamic>;
-      
-      if (data['type'] == 'roulette.tableState' && 
+
+      if (data['type'] == 'roulette.tableState' &&
           data['state'] == 'GAME_RESOLVED') {
         final number = _extractNumber(data);
         if (number != null) {
@@ -45,7 +46,7 @@ class TableSocket {
         }
       }
     } catch (e) {
-      print('Error handling message: $e');
+      Logger.error('Ошибка обработки сообщения', e);
     }
   }
 
@@ -60,7 +61,7 @@ class TableSocket {
         );
       }
     } catch (e) {
-      print('Error extracting number: $e');
+      Logger.error('Ошибка извлечения номера', e);
     }
     return null;
   }
@@ -68,4 +69,4 @@ class TableSocket {
   void disconnect() {
     _channel.sink.close();
   }
-} 
+}

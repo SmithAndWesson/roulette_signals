@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/utils/logger.dart';
 
 class AuthService {
   static const String _baseUrl = 'https://gizbo.casino';
@@ -17,9 +18,9 @@ class AuthService {
       body: jsonEncode(credentials.toJson()),
     );
 
-    print('Status: ${response.statusCode}');
-    print('Body: ${response.body}');
-    print('Headers: ${response.headers}');
+    Logger.debug('Статус: ${response.statusCode}');
+    Logger.debug('Тело ответа: ${response.body}');
+    Logger.debug('Заголовки: ${response.headers}');
 
     if (response.statusCode != 200) {
       throw Exception('Ошибка авторизации: ${response.statusCode}');

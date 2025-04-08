@@ -1,4 +1,5 @@
 import 'package:assets_audio_player/assets_audio_player.dart';
+import 'package:roulette_signals/utils/logger.dart';
 
 class SoundPlayer {
   static const String _pingSoundPath = 'assets/sounds/ping.mp3';
@@ -12,11 +13,11 @@ class SoundPlayer {
         showNotification: false,
       );
     } catch (e) {
-      print('Ошибка воспроизведения звука: $e');
+      Logger.error('Ошибка воспроизведения звука', e);
     }
   }
 
   void dispose() {
     _audioPlayer.dispose();
   }
-} 
+}

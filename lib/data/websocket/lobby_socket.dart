@@ -1,5 +1,6 @@
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/utils/logger.dart';
 
 class LobbySocket {
   final String sessionId;
@@ -23,10 +24,10 @@ class LobbySocket {
         _handleMessage(message);
       },
       onError: (error) {
-        print('WebSocket error: $error');
+        Logger.error('Ошибка WebSocket', error);
       },
       onDone: () {
-        print('WebSocket connection closed');
+        Logger.warning('Соединение WebSocket закрыто');
       },
     );
   }
@@ -39,7 +40,7 @@ class LobbySocket {
         onNumbersReceived(numbers);
       }
     } catch (e) {
-      print('Error handling message: $e');
+      Logger.error('Ошибка обработки сообщения', e);
     }
   }
 
@@ -53,4 +54,4 @@ class LobbySocket {
   void disconnect() {
     _channel.sink.close();
   }
-} 
+}

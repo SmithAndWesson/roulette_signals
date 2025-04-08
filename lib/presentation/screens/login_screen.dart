@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/utils/logger.dart';
 import 'package:webview_windows/webview_windows.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -32,6 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Слушаем изменения URL
       _controller.url.listen((url) {
+        Logger.debug('URL изменен: $url');
         _checkAuthStatus();
       });
 
@@ -41,13 +43,15 @@ class _LoginScreenState extends State<LoginScreen> {
           _isLoading = state == LoadingState.loading;
         });
         if (state == LoadingState.navigationCompleted) {
+          Logger.info('Страница загружена');
           _checkAuthStatus();
         }
       });
 
       setState(() => _isInitialized = true);
+      Logger.info('WebView инициализирован');
     } catch (e) {
-      print('Ошибка инициализации WebView: $e');
+      Logger.error('Ошибка инициализации WebView', e);
     }
   }
 
@@ -72,9 +76,12 @@ class _LoginScreenState extends State<LoginScreen> {
           _evoSessionId = evoSessionId;
           _jwtToken = jwtToken;
         });
+        Logger.info('Токены получены успешно');
+      } else {
+        Logger.warning('Токены не найдены');
       }
     } catch (e) {
-      print('Ошибка проверки авторизации: $e');
+      Logger.error('Ошибка проверки авторизации', e);
     }
   }
 
@@ -90,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _onContinue() {
     if (_jwtToken != null && _evoSessionId != null) {
+      Logger.info('Переход к основному экрану');
       widget.onLoginSuccess(
         AuthResponse(
           jwtToken: _jwtToken!,
@@ -97,6 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } else {
+      Logger.warning('Попытка продолжить без токенов');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Токены не получены. Пожалуйста, войдите в систему.'),
@@ -107,6 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    Logger.info('Очистка ресурсов WebView');
     _controller.dispose();
     super.dispose();
   }
