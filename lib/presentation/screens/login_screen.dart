@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
       widget.onLoginSuccess(response);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка авторизации: $e')),
+        SnackBar(content: Text('Ошибка авторизации 123: $e')),
       );
     } finally {
       setState(() => _isLoading = false);
@@ -52,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    
     return Scaffold(
       appBar: AppBar(title: const Text('Авторизация')),
       body: Padding(
