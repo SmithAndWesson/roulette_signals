@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/models/signal.dart';
 
 class TelegramService {
   final String botToken;
@@ -26,7 +26,8 @@ class TelegramService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Ошибка отправки сообщения в Telegram: ${response.statusCode}');
+      throw Exception(
+          'Ошибка отправки сообщения в Telegram: ${response.statusCode}');
     }
   }
-} 
+}

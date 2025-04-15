@@ -1,0 +1,31 @@
+class RouletteGame {
+  final String title;
+  final String provider;
+  final String identifier;
+  final String playUrl;
+  final String id;
+  final String slug;
+  final List<String> collections;
+
+  RouletteGame({
+    required this.title,
+    required this.provider,
+    required this.identifier,
+    required this.playUrl,
+    required this.id,
+    required this.slug,
+    required this.collections,
+  });
+
+  factory RouletteGame.fromJson(Map<String, dynamic> json) {
+    return RouletteGame(
+      title: json['title'] as String,
+      provider: json['provider'] as String,
+      identifier: json['identifier'] as String,
+      playUrl: json['play_url'] as String,
+      id: json['id'] as String,
+      slug: json['slug'] as String,
+      collections: (json['collections'] as List).cast<String>(),
+    );
+  }
+}

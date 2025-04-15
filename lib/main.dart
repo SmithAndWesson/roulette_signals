@@ -14,20 +14,59 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Анализатор рулетки',
+      title: 'Roulette Signals',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.green,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        cardTheme: CardTheme(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        appBarTheme: AppBarTheme(
+          elevation: 0,
+          centerTitle: true,
+          backgroundColor: Colors.transparent,
+        ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
       ),
-      home: const LoginScreen(
-        onLoginSuccess: _handleLoginSuccess,
-      ),
+      home: const MyHome(),
     );
   }
 }
 
-void _handleLoginSuccess(AuthResponse response) {
-  // В реальном приложении здесь нужно использовать Navigator
-  // для перехода на главный экран
-  Logger.info('Успешный вход: ${response.jwtToken}');
+class MyHome extends StatefulWidget {
+  const MyHome({Key? key}) : super(key: key);
+
+  @override
+  State<MyHome> createState() => _MyHomeState();
+}
+
+class _MyHomeState extends State<MyHome> {
+  void _handleLoginSuccess(AuthResponse response) {
+    Logger.info('Успешный вход: ${response.jwtToken}');
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+          builder: (context) => MainScreen(authResponse: response)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LoginScreen(
+      onLoginSuccess: _handleLoginSuccess,
+    );
+  }
 }

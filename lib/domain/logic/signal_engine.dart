@@ -1,4 +1,5 @@
-import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/models/game_models.dart' show RouletteNumber;
+import 'package:roulette_signals/models/signal.dart';
 
 class SignalEngine {
   final List<RouletteNumber> _numbers = [];
@@ -25,16 +26,20 @@ class SignalEngine {
       if (lastIndex != -1) {
         final missingRounds = _numbers.length - lastIndex - 1;
         if (missingRounds >= _signalThreshold) {
-          final lastNumbers = _numbers.sublist(
-            _numbers.length - _signalThreshold,
-            _numbers.length,
-          ).map((n) => n.number).toList();
+          final lastNumbers = _numbers
+              .sublist(
+                _numbers.length - _signalThreshold,
+                _numbers.length,
+              )
+              .map((n) => n.number)
+              .toList();
 
           onSignalDetected(Signal(
-            type: 'dozen',
-            number: dozen,
-            missingRounds: missingRounds,
+            type: SignalType.missingDozen,
+            message:
+                'Не выпадала $dozen-я дюжина в последних $_signalThreshold числах',
             lastNumbers: lastNumbers,
+            timestamp: DateTime.now(),
           ));
         }
       }
@@ -47,16 +52,20 @@ class SignalEngine {
       if (lastIndex != -1) {
         final missingRounds = _numbers.length - lastIndex - 1;
         if (missingRounds >= _signalThreshold) {
-          final lastNumbers = _numbers.sublist(
-            _numbers.length - _signalThreshold,
-            _numbers.length,
-          ).map((n) => n.number).toList();
+          final lastNumbers = _numbers
+              .sublist(
+                _numbers.length - _signalThreshold,
+                _numbers.length,
+              )
+              .map((n) => n.number)
+              .toList();
 
           onSignalDetected(Signal(
-            type: 'column',
-            number: column,
-            missingRounds: missingRounds,
+            type: SignalType.missingRow,
+            message:
+                'Не выпадала $column-я строка в последних $_signalThreshold числах',
             lastNumbers: lastNumbers,
+            timestamp: DateTime.now(),
           ));
         }
       }
@@ -84,4 +93,4 @@ class SignalEngine {
   void clear() {
     _numbers.clear();
   }
-} 
+}

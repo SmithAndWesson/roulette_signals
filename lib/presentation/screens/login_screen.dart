@@ -86,7 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   String? _extractEvoSessionId(String cookies) {
-    final pattern = RegExp(r'EVOSESSIONID=([^;]+)');
+    final pattern = RegExp(r'original_user_id=([^;]+)');
     final match = pattern.firstMatch(cookies);
     return match?.group(1);
   }
@@ -124,31 +124,66 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Вход через WebView (Windows)'),
-        actions: [
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(),
-            ),
-        ],
-      ),
-      body: _isInitialized
-          ? Stack(
-              children: [
-                Webview(_controller),
-                if (_isLoading)
-                  const Center(
-                    child: CircularProgressIndicator(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).colorScheme.primary,
+              Theme.of(context).colorScheme.background,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  'Roulette Signals',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
+              Expanded(
+                child: Webview(_controller),
+              ),
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: CircularProgressIndicator(),
+                ),
+              if (_jwtToken != null && _evoSessionId != null)
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ElevatedButton(
+                    onPressed: _onContinue,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Продолжить',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-              ],
-            )
-          : const Center(child: CircularProgressIndicator()),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _onContinue,
-        label: const Text('Продолжить'),
-        icon: const Icon(Icons.login),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
