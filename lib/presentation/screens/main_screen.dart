@@ -30,20 +30,22 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  late LobbySocket _lobbySocket;
-  late TableSocket _tableSocket;
-  late SignalEngine _signalEngine;
-  late TelegramService _telegramService;
-  late RoulettesPoller _roulettesPoller;
+  final _rouletteService = RouletteService();
+  final _websocketService = WebSocketService();
+  final _numberAnalyzer = NumberAnalyzer();
+  final _roulettesPoller = RoulettesPoller(
+    onSignalDetected: (game, signal) {
+      // Обработка сигнала
+    },
+    pollInterval: const Duration(seconds: 30),
+  );
   final _soundPlayer = SoundPlayer();
   final List<RouletteNumber> _numbers = [];
   final List<Signal> _signals = [];
-  final _rouletteService = RouletteService();
-  final _webSocketService = WebSocketService();
-  final _numberAnalyzer = NumberAnalyzer();
-  List<RouletteGame> _games = [];
+  List<RouletteGame> _rouletteGames = [];
   bool _isLoading = true;
   bool _isAnalyzing = false;
+  DateTime? _lastAnalysisTime;
   Map<String, RecentResults?> _recentResults = {};
   Map<String, List<Signal>> _gameSignals = {};
   Duration _analysisInterval = const Duration(seconds: 30);
@@ -51,57 +53,17 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeServices();
-    _loadGames();
+    _loadRouletteGames();
   }
 
-  void _initializeServices() {
-    _telegramService = TelegramService(
-      botToken: 'YOUR_BOT_TOKEN', // Замените на реальный токен
-      chatId: 'YOUR_CHAT_ID', // Замените на реальный chat_id
-    );
-
-    _signalEngine = SignalEngine(
-      onSignalDetected: _handleSignal,
-    );
-
-    _lobbySocket = LobbySocket(
-      sessionId: widget.authResponse.evoSessionId,
-      onNumbersReceived: _handleNumbers,
-    );
-
-    _tableSocket = TableSocket(
-      tableId: 'YOUR_TABLE_ID', // Замените на реальный ID стола
-      evoSessionId: widget.authResponse.evoSessionId,
-      onNumberReceived: _handleNumber,
-    );
-
-    _roulettesPoller = RoulettesPoller(
-      onSignalDetected: _handlePollerSignal,
-      pollInterval: _analysisInterval,
-    );
-
-    _lobbySocket.connect();
-    _tableSocket.connect();
-  }
-
-  Future<void> _loadGames() async {
+  Future<void> _loadRouletteGames() async {
     try {
-      final games = await _rouletteService.fetchLiveRouletteGames();
-      setState(() {
-        _games = games;
-        _isLoading = false;
-      });
-    } catch (e) {
-      Logger.error('Ошибка загрузки списка рулеток', e);
+      setState(() => _isLoading = true);
+      _rouletteGames = await _rouletteService.fetchLiveRouletteGames();
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Ошибка загрузки списка рулеток'),
-          ),
-        );
-      }
+    } catch (e) {
+      Logger.error('Ошибка загрузки рулеток', e);
+      setState(() => _isLoading = false);
     }
   }
 
@@ -183,7 +145,7 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     try {
-      final results = await _webSocketService.fetchRecentResults(params);
+      final results = await _websocketService.fetchRecentResults(params);
       setState(() {
         _recentResults[gameId] = results;
       });
@@ -239,21 +201,15 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Список рулеток'),
+        title: const Text('Roulette Signals'),
         actions: [
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(),
-            ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadGames,
+            onPressed: _isLoading ? null : _loadRouletteGames,
           ),
           IconButton(
             icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
             onPressed: _toggleAnalysis,
-            tooltip: _isAnalyzing ? 'Остановить анализ' : 'Запустить анализ',
           ),
         ],
       ),
@@ -302,17 +258,13 @@ class _MainScreenState extends State<MainScreen> {
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                     ),
-                    itemCount: _games.length,
+                    itemCount: _rouletteGames.length,
                     itemBuilder: (context, index) {
-                      final game = _games[index];
+                      final game = _rouletteGames[index];
                       return RouletteCard(
                         game: game,
-                        evoSessionId: widget.authResponse.evoSessionId,
-                        onConnect: (params) {
-                          Logger.info('Подключение к рулетке: ${game.title}');
-                          _fetchRecentResults(game.id.toString(), params);
-                        },
-                        signals: _gameSignals[game.title] ?? [],
+                        recentResults: _recentResults[game.id],
+                        signals: _gameSignals[game.id] ?? [],
                       );
                     },
                   ),
@@ -324,8 +276,6 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
-    _lobbySocket.disconnect();
-    _tableSocket.disconnect();
     _roulettesPoller.stop();
     _soundPlayer.dispose();
     super.dispose();
