@@ -123,7 +123,7 @@ class _MainScreenState extends State<MainScreen> {
       final game = _rouletteGames.firstWhere(
         (g) => g.title == gameTitle,
         orElse: () => RouletteGame(
-          id: 0,
+          id: '0',
           title: gameTitle,
           provider: '',
           identifier: '',
@@ -133,9 +133,9 @@ class _MainScreenState extends State<MainScreen> {
         ),
       );
       setState(() {
-        _gameSignals[game.id.toString()] = signals;
+        _gameSignals[game.id] = signals;
       });
-      _handleSignals(game.id.toString(), signals);
+      _handleSignals(game.id, signals);
     }
   }
 
