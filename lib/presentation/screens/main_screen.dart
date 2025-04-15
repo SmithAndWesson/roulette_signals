@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:roulette_signals/models/game_models.dart' hide Signal;
+import 'package:roulette_signals/models/game_models.dart' show AuthResponse;
 import 'package:roulette_signals/models/roulette_game.dart';
 import 'package:roulette_signals/models/recent_results.dart';
 import 'package:roulette_signals/models/signal.dart';
@@ -42,9 +42,7 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _roulettesPoller = RoulettesPoller(
-      onSignalDetected: (game, signal) {
-        _handleSignals(game.id.toString(), [signal]);
-      },
+      onSignalDetected: _handlePollerSignal,
       pollInterval: _analysisInterval,
     );
     _loadRouletteGames();
@@ -116,6 +114,28 @@ class _MainScreenState extends State<MainScreen> {
         _gameSignals[gameId] = signals;
       });
       _handleSignals(gameId, signals);
+    }
+  }
+
+  void _handlePollerSignal(String gameTitle, List<int> numbers) {
+    final signals = _numberAnalyzer.detectMissingDozenOrRow(numbers);
+    if (signals.isNotEmpty) {
+      final game = _rouletteGames.firstWhere(
+        (g) => g.title == gameTitle,
+        orElse: () => RouletteGame(
+          id: 0,
+          title: gameTitle,
+          provider: '',
+          identifier: '',
+          playUrl: '',
+          slug: '',
+          collections: [],
+        ),
+      );
+      setState(() {
+        _gameSignals[game.id.toString()] = signals;
+      });
+      _handleSignals(game.id.toString(), signals);
     }
   }
 
