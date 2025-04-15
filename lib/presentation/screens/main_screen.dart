@@ -1,10 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:roulette_signals/data/telegram/telegram_service.dart';
-import 'package:roulette_signals/data/websocket/lobby_socket.dart';
-import 'package:roulette_signals/data/websocket/table_socket.dart';
-import 'package:roulette_signals/domain/logic/signal_engine.dart';
-import 'package:roulette_signals/models/game_models.dart'
-    show RouletteNumber, AuthResponse;
+import 'package:roulette_signals/models/game_models.dart' hide Signal;
 import 'package:roulette_signals/models/roulette_game.dart';
 import 'package:roulette_signals/models/recent_results.dart';
 import 'package:roulette_signals/models/signal.dart';
@@ -33,15 +28,8 @@ class _MainScreenState extends State<MainScreen> {
   final _rouletteService = RouletteService();
   final _websocketService = WebSocketService();
   final _numberAnalyzer = NumberAnalyzer();
-  final _roulettesPoller = RoulettesPoller(
-    onSignalDetected: (game, signal) {
-      // Обработка сигнала
-    },
-    pollInterval: const Duration(seconds: 30),
-  );
+  late final RoulettesPoller _roulettesPoller;
   final _soundPlayer = SoundPlayer();
-  final List<RouletteNumber> _numbers = [];
-  final List<Signal> _signals = [];
   List<RouletteGame> _rouletteGames = [];
   bool _isLoading = true;
   bool _isAnalyzing = false;
@@ -53,6 +41,12 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    _roulettesPoller = RoulettesPoller(
+      onSignalDetected: (game, signal) {
+        _handleSignals(game.id.toString(), [signal]);
+      },
+      pollInterval: _analysisInterval,
+    );
     _loadRouletteGames();
   }
 
@@ -64,59 +58,6 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e) {
       Logger.error('Ошибка загрузки рулеток', e);
       setState(() => _isLoading = false);
-    }
-  }
-
-  void _handleNumbers(List<RouletteNumber> numbers) {
-    setState(() {
-      _numbers.addAll(numbers);
-    });
-  }
-
-  void _handleNumber(RouletteNumber number) {
-    setState(() {
-      _numbers.add(number);
-    });
-    _signalEngine.addNumber(number);
-  }
-
-  void _handleSignal(Signal signal) async {
-    setState(() {
-      _signals.add(signal);
-    });
-
-    // Воспроизведение звука
-    await _soundPlayer.playPing();
-
-    // Отправка в Telegram
-    try {
-      await _telegramService.sendSignal(signal);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка отправки в Telegram: $e')),
-        );
-      }
-    }
-
-    // Показ уведомления
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(signal.message),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    }
-  }
-
-  void _handlePollerSignal(String gameTitle, List<int> numbers) {
-    final signals = _numberAnalyzer.detectMissingDozenOrRow(numbers);
-    if (signals.isNotEmpty) {
-      setState(() {
-        _gameSignals[gameTitle] = signals;
-      });
-      _handleSignals(gameTitle, signals);
     }
   }
 
@@ -263,7 +204,9 @@ class _MainScreenState extends State<MainScreen> {
                       final game = _rouletteGames[index];
                       return RouletteCard(
                         game: game,
-                        recentResults: _recentResults[game.id],
+                        evoSessionId: widget.authResponse.evoSessionId,
+                        onConnect: (params) =>
+                            _fetchRecentResults(game.id.toString(), params),
                         signals: _gameSignals[game.id] ?? [],
                       );
                     },
