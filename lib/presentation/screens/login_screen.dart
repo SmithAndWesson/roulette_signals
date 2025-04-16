@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:roulette_signals/models/game_models.dart';
 import 'package:roulette_signals/utils/logger.dart';
 import 'package:webview_windows/webview_windows.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(AuthResponse) onLoginSuccess;
@@ -57,15 +58,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _checkAuthStatus() async {
     try {
+      // Получаем все куки
+      final cookieResult = await _controller.executeScript(
+        'document.cookie',
+      );
+
       // Получаем JWT из localStorage
       final jwtResult = await _controller.executeScript(
         'localStorage.getItem("JWT_AUTH")',
       );
 
-      // Получаем все куки
-      final cookieResult = await _controller.executeScript(
-        'document.cookie',
-      );
+      // Сохраняем все cookies в SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('all_cookies', _cleanResult(cookieResult));
 
       // Извлекаем EVOSESSIONID из куков
       final evoSessionId = _extractEvoSessionId(_cleanResult(cookieResult));
