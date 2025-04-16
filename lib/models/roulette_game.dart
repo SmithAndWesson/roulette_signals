@@ -22,10 +22,10 @@ class RouletteGame {
       title: json['title'] as String,
       provider: json['provider'] as String,
       identifier: json['identifier'] as String,
-      playUrl: json['play_url'] as String,
-      id: json['id'] as String,
+      playUrl: json['play_url']?['UAH'] ?? '',
+      id: json['id'].toString(),
       slug: json['slug'] as String,
-      collections: (json['collections'] as List).cast<String>(),
+      collections: List<String>.from(json['collections']),
     );
   }
 }
