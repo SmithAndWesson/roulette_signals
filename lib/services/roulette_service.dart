@@ -38,9 +38,6 @@ class RouletteService {
           List<String>.from(restrictions['producers'] ?? []);
       final restrictedGames = List<String>.from(restrictions['games'] ?? []);
 
-      Logger.debug('Заблокированные провайдеры: $restrictedProviders');
-      Logger.debug('Заблокированные игры: $restrictedGames');
-
       final filteredGames = rouletteGames.where((game) {
         // формируем ключ в формате provider:gameName
         final gameKey = game.identifier.replaceFirst('/', ':');
@@ -69,6 +66,25 @@ class RouletteService {
     }
     final Map<String, dynamic> jsonData = json.decode(response.body);
     return jsonData['BaseApiV2GamesRestrictions']?['restrictions'] ?? {};
+  }
+
+  String _normalizeBase64(String input) {
+    var cleaned = input.replaceAll(RegExp(r'[^A-Za-z0-9+/]'), '');
+    final mod = cleaned.length % 4;
+    if (mod != 0) cleaned += '=' * (4 - mod);
+    return cleaned;
+  }
+
+  Map<String, String> _parseKeyValueString(String input) {
+    final Map<String, String> result = {};
+    for (var line in input.split('\n')) {
+      if (!line.contains('=')) continue;
+      final idx = line.indexOf('=');
+      final key = line.substring(0, idx).trim();
+      final value = line.substring(idx + 1).trim();
+      result[key] = value;
+    }
+    return result;
   }
 
   Future<WebSocketParams> extractWebSocketParams(
@@ -122,14 +138,16 @@ class RouletteService {
       }
 
       // Декодируем options
-      final optionsJsonStr = utf8.decode(base64.decode(optionsEncoded));
-      final optionsJson = json.decode(optionsJsonStr);
+      final optionsNormalized = _normalizeBase64(optionsEncoded as String);
+      final optionsDecoded = utf8.decode(base64.decode(optionsNormalized));
 
-      // Извлекаем game_url
-      final gameUrl = optionsJson['launch_options']['game_url'];
-      if (gameUrl == null) {
+      // Парсим JSON
+      final Map<String, dynamic> optionsMap = jsonDecode(optionsDecoded);
+      final launchOpts = optionsMap['launch_options'] as Map<String, dynamic>?;
+      if (launchOpts == null || launchOpts['game_url'] == null) {
         throw Exception('game_url не найден в launch_options');
       }
+      final gameUrl = launchOpts['game_url'] as String;
 
       // Извлекаем параметр params
       final gameUri = Uri.parse(gameUrl);
@@ -138,14 +156,20 @@ class RouletteService {
         throw Exception('Параметр params не найден в game_url');
       }
 
+      final jsessionId = gameUri.queryParameters['JSESSIONID'];
+      if (jsessionId == null) {
+        throw Exception('JSESSIONID не найден в game_url');
+      }
       // Декодируем params
-      final paramsJsonStr = utf8.decode(base64.decode(paramsEncoded));
-      final paramsJson = json.decode(paramsJsonStr);
+      final paramsNormalized = _normalizeBase64(paramsEncoded as String);
+      final paramsDecoded = utf8.decode(base64.decode(paramsNormalized));
+      final params = _parseKeyValueString(paramsDecoded);
 
-      final tableId = paramsJson['table_id'];
-      final vtId = paramsJson['vt_id'];
-      final uaLaunchId = paramsJson['ua_launch_id'];
-      final clientVersion = paramsJson['client_version'];
+      final tableId = params['table_id'];
+      final vtId = params['vt_id'];
+      final uaLaunchId = params['ua_launch_id'];
+      final clientVersion =
+          '6.20250415.70424.51183-8793aee83a'; //params['client_version'];
 
       if (tableId == null || vtId == null || clientVersion == null) {
         throw Exception('Некорректные параметры подключения');
@@ -158,9 +182,9 @@ class RouletteService {
       return WebSocketParams(
         tableId: tableId,
         vtId: vtId,
-        uaLaunchId: uaLaunchId,
+        uaLaunchId: uaLaunchId ?? '',
         clientVersion: clientVersion,
-        evoSessionId: evoSessionId,
+        evoSessionId: jsessionId,
         instance: instance,
       );
     } catch (e) {
