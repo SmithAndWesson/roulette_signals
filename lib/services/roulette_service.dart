@@ -96,96 +96,110 @@ class RouletteService {
       final controller = WebviewController();
       await controller.initialize();
 
-      // Устанавливаем cookies
+      // Устанавливаем сохранённые cookies для gizbo.casino
       await controller.executeScript('''
-        document.cookie = "$savedCookies";
-      ''');
+      document.cookie = "$savedCookies";
+    ''');
 
-      final completer = Completer<String>();
+      // Два Completer'а: первый для iframeSrc, второй — для cookieHeader
+      final iframeCompleter = Completer<String>();
+      final cookieCompleter = Completer<String>();
 
-      // Слушаем загрузку страницы
+      // Стартовая стадия: ждем iframe
+      int stage = 0;
+      late String gameUrl;
+
+      // Одна подписка на loadingState
       controller.loadingState.listen((state) async {
-        if (state == LoadingState.navigationCompleted) {
-          try {
-            final iframeSrc = await controller.executeScript('''
-              document.querySelector('iframe') ? document.querySelector('iframe').src : ''
-            ''');
+        if (state != LoadingState.navigationCompleted) return;
 
-            if (iframeSrc != null && iframeSrc.isNotEmpty) {
-              completer.complete(iframeSrc);
+        try {
+          if (stage == 0) {
+            // 1) получили iframe src
+            final src = await controller.executeScript('''
+            document.querySelector('iframe')?.src ?? ''
+          ''');
+            if (src is String && src.isNotEmpty) {
+              iframeCompleter.complete(src);
+              stage = 1; // переход к следующей стадии
             } else {
-              completer.completeError('iframe не найден');
+              iframeCompleter.completeError('iframe не найден');
             }
-          } catch (e) {
-            completer.completeError(e);
+          } else {
+            // 2) после загрузки gameUrl — достаём куки
+            final rawJs = await controller.executeScript('document.cookie');
+            final cookieHeader =
+                (rawJs as String).replaceAll(r'\"', '"').replaceAll('"', '');
+            cookieCompleter.complete(cookieHeader);
+            // Больше не нужен слушатель
           }
+        } catch (e) {
+          if (stage == 0)
+            iframeCompleter.completeError(e);
+          else
+            cookieCompleter.completeError(e);
         }
       });
 
-      // Загружаем страницу
+      // 1) Загружаем первую страницу, чтобы вытянуть iframe
       final fullUrl = 'https://gizbo.casino$playUrl';
-      Logger.info('WebSocket URL: $fullUrl');
+      Logger.info('Load gizbo page: $fullUrl');
       await controller.loadUrl(fullUrl);
+      final iframeSrc = await iframeCompleter.future;
 
-      // Ждем получения src iframe
-      final iframeSrc = await completer.future;
-
-      // Извлекаем параметр options из iframeSrc
+      // 2) Парсим iframeSrc → options → gameUrl
       final iframeUri = Uri.parse(iframeSrc);
       final optionsEncoded = iframeUri.queryParameters['options'];
       if (optionsEncoded == null) {
         throw Exception('Параметр options не найден в iframe');
       }
-
-      // Декодируем options
-      final optionsNormalized = _normalizeBase64(optionsEncoded as String);
-      final optionsDecoded = utf8.decode(base64.decode(optionsNormalized));
-
-      // Парсим JSON
-      final Map<String, dynamic> optionsMap = jsonDecode(optionsDecoded);
+      final optionsNorm = _normalizeBase64(optionsEncoded);
+      final optionsJson = utf8.decode(base64.decode(optionsNorm));
+      final optionsMap = jsonDecode(optionsJson) as Map<String, dynamic>;
       final launchOpts = optionsMap['launch_options'] as Map<String, dynamic>?;
       if (launchOpts == null || launchOpts['game_url'] == null) {
         throw Exception('game_url не найден в launch_options');
       }
-      final gameUrl = launchOpts['game_url'] as String;
+      gameUrl = launchOpts['game_url'] as String;
 
-      // Извлекаем параметр params
+      // 3) Загружаем страницу gameUrl, чтобы WebView выставил реальные куки
+      Logger.info('Load game page: $gameUrl');
+      await controller.loadUrl(gameUrl);
+
+      // и ждём извлечения куки
+      final cookieHeader = await cookieCompleter.future;
+      Logger.debug('Real royal cookies: $cookieHeader');
+
+      // 4) Парсим params из gameUrl
       final gameUri = Uri.parse(gameUrl);
       final paramsEncoded = gameUri.queryParameters['params'];
+      final jsessionId = gameUri.queryParameters['JSESSIONID'];
       if (paramsEncoded == null) {
         throw Exception('Параметр params не найден в game_url');
       }
-
-      final jsessionId = gameUri.queryParameters['JSESSIONID'];
       if (jsessionId == null) {
         throw Exception('JSESSIONID не найден в game_url');
       }
-      // Декодируем params
-      final paramsNormalized = _normalizeBase64(paramsEncoded as String);
-      final paramsDecoded = utf8.decode(base64.decode(paramsNormalized));
-      final params = _parseKeyValueString(paramsDecoded);
+      final paramsNorm = _normalizeBase64(paramsEncoded);
+      final paramsJson = utf8.decode(base64.decode(paramsNorm));
+      final paramsMap = _parseKeyValueString(paramsJson);
 
-      final tableId = params['table_id'];
-      final vtId = params['vt_id'];
-      final uaLaunchId = params['ua_launch_id'];
-      final clientVersion =
-          '6.20250415.70424.51183-8793aee83a'; //params['client_version'];
+      final tableId = paramsMap['table_id']!;
+      final vtId = paramsMap['vt_id']!;
+      final uaLaunchId = paramsMap['ua_launch_id'] ?? '';
+      final clientVersion = '6.20250415.70424.51183-8793aee83a';
 
-      if (tableId == null || vtId == null || clientVersion == null) {
-        throw Exception('Некорректные параметры подключения');
-      }
-
-      // Формируем instance
-      final random = Random().nextInt(1000000);
-      final instance = '$random-$evoSessionId-$vtId';
+      // 5) Формируем instance
+      final instance = '${Random().nextInt(1 << 20)}-$evoSessionId-$vtId';
 
       return WebSocketParams(
         tableId: tableId,
         vtId: vtId,
-        uaLaunchId: uaLaunchId ?? '',
+        uaLaunchId: uaLaunchId,
         clientVersion: clientVersion,
         evoSessionId: jsessionId,
         instance: instance,
+        cookieHeader: cookieHeader,
       );
     } catch (e) {
       Logger.error('Ошибка извлечения параметров WebSocket', e);

@@ -5,6 +5,7 @@ class WebSocketParams {
   final String clientVersion;
   final String evoSessionId;
   final String instance;
+  final String cookieHeader;
 
   WebSocketParams({
     required this.tableId,
@@ -13,6 +14,7 @@ class WebSocketParams {
     required this.clientVersion,
     required this.evoSessionId,
     required this.instance,
+    required this.cookieHeader,
   });
 
   String get webSocketUrl {
