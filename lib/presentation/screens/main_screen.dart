@@ -28,15 +28,17 @@ class _MainScreenState extends State<MainScreen> {
   final _rouletteService = RouletteService();
   final _websocketService = WebSocketService();
   final _numberAnalyzer = NumberAnalyzer();
-  late final RoulettesPoller _roulettesPoller;
   final _soundPlayer = SoundPlayer();
-  List<RouletteGame> _rouletteGames = [];
+  List<RouletteGame> _games = [];
+  String _selectedProvider = 'All';
+  List<String> _allProviders = [];
   bool _isLoading = true;
   bool _isAnalyzing = false;
   DateTime? _lastAnalysisTime;
   Map<String, RecentResults?> _recentResults = {};
   Map<String, List<Signal>> _gameSignals = {};
   Duration _analysisInterval = const Duration(seconds: 30);
+  late final RoulettesPoller _roulettesPoller;
 
   @override
   void initState() {
@@ -45,16 +47,20 @@ class _MainScreenState extends State<MainScreen> {
       onSignalDetected: _handlePollerSignal,
       pollInterval: _analysisInterval,
     );
-    _loadRouletteGames();
+    _loadGames();
   }
 
-  Future<void> _loadRouletteGames() async {
+  Future<void> _loadGames() async {
     try {
       setState(() => _isLoading = true);
-      _rouletteGames = await _rouletteService.fetchLiveRouletteGames();
-      setState(() => _isLoading = false);
+      final games = await _rouletteService.fetchLiveRouletteGames();
+      setState(() {
+        _games = games;
+        _allProviders = games.map((g) => g.provider).toSet().toList()..sort();
+        _isLoading = false;
+      });
     } catch (e) {
-      Logger.error('Ошибка загрузки рулеток', e);
+      Logger.error('Ошибка загрузки игр', e);
       setState(() => _isLoading = false);
     }
   }
@@ -120,7 +126,7 @@ class _MainScreenState extends State<MainScreen> {
   void _handlePollerSignal(String gameTitle, List<int> numbers) {
     final signals = _numberAnalyzer.detectMissingDozenOrRow(numbers);
     if (signals.isNotEmpty) {
-      final game = _rouletteGames.firstWhere(
+      final game = _games.firstWhere(
         (g) => g.title == gameTitle,
         orElse: () => RouletteGame(
           id: '0',
@@ -160,13 +166,24 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final filteredGames = _games
+        .where((game) =>
+            _selectedProvider == 'All' || game.provider == _selectedProvider)
+        .toList();
+
+    // Создаем Map с количеством игр для каждого провайдера
+    final providerCounts = <String, int>{};
+    for (final game in _games) {
+      providerCounts[game.provider] = (providerCounts[game.provider] ?? 0) + 1;
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Roulette Signals'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadRouletteGames,
+            onPressed: _isLoading ? null : _loadGames,
           ),
           IconButton(
             icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
@@ -174,66 +191,85 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Row(
-                    children: [
-                      const Text('Интервал анализа:'),
-                      const SizedBox(width: 8),
-                      DropdownButton<Duration>(
-                        value: _analysisInterval,
-                        items: const [
-                          DropdownMenuItem(
-                            value: Duration(seconds: 15),
-                            child: Text('15 сек'),
-                          ),
-                          DropdownMenuItem(
-                            value: Duration(seconds: 30),
-                            child: Text('30 сек'),
-                          ),
-                          DropdownMenuItem(
-                            value: Duration(seconds: 60),
-                            child: Text('1 мин'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            _updateAnalysisInterval(value);
-                          }
-                        },
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  const Text('Интервал анализа:'),
+                  const SizedBox(width: 8),
+                  DropdownButton<Duration>(
+                    value: _analysisInterval,
+                    items: const [
+                      DropdownMenuItem(
+                        value: Duration(seconds: 15),
+                        child: Text('15 сек'),
+                      ),
+                      DropdownMenuItem(
+                        value: Duration(seconds: 30),
+                        child: Text('30 сек'),
+                      ),
+                      DropdownMenuItem(
+                        value: Duration(seconds: 60),
+                        child: Text('1 мин'),
                       ),
                     ],
-                  ),
-                ),
-                Expanded(
-                  child: GridView.builder(
-                    padding: const EdgeInsets.all(8),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: 1.5,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                    ),
-                    itemCount: _rouletteGames.length,
-                    itemBuilder: (context, index) {
-                      final game = _rouletteGames[index];
-                      return RouletteCard(
-                        game: game,
-                        evoSessionId: widget.authResponse.evoSessionId,
-                        onConnect: (params) =>
-                            _fetchRecentResults(game.id.toString(), params),
-                        signals: _gameSignals[game.id] ?? [],
-                      );
+                    onChanged: (value) {
+                      if (value != null) {
+                        _updateAnalysisInterval(value);
+                      }
                     },
                   ),
-                ),
-              ],
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: DropdownButton<String>(
+                      value: _selectedProvider,
+                      items: [
+                        DropdownMenuItem(
+                          value: 'All',
+                          child: Text('All (${_games.length})'),
+                        ),
+                        ..._allProviders.map((provider) => DropdownMenuItem(
+                              value: provider,
+                              child: Text(
+                                  '$provider (${providerCounts[provider] ?? 0})'),
+                            )),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _selectedProvider = value!),
+                      isExpanded: true,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                      dropdownColor: Theme.of(context).colorScheme.surface,
+                    ),
+                  ),
+                ],
+              ),
             ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : GridView.count(
+                      crossAxisCount: 5,
+                      childAspectRatio: 1.0,
+                      mainAxisSpacing: 8.0,
+                      crossAxisSpacing: 8.0,
+                      padding: const EdgeInsets.all(16.0),
+                      children: filteredGames
+                          .map((game) => RouletteCard(
+                                game: game,
+                                evoSessionId: widget.authResponse.evoSessionId,
+                                onConnect: (params) => _fetchRecentResults(
+                                    game.id.toString(), params),
+                                signals: _gameSignals[game.id] ?? [],
+                              ))
+                          .toList(),
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

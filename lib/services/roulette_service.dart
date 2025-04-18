@@ -38,11 +38,21 @@ class RouletteService {
           List<String>.from(restrictions['producers'] ?? []);
       final restrictedGames = List<String>.from(restrictions['games'] ?? []);
 
-      final filteredGames = rouletteGames
-          .where((game) =>
-              !restrictedGames.contains(game.identifier) &&
-              !restrictedProviders.contains(game.provider))
-          .toList();
+      Logger.debug('Заблокированные провайдеры: $restrictedProviders');
+      Logger.debug('Заблокированные игры: $restrictedGames');
+
+      final filteredGames = rouletteGames.where((game) {
+        // формируем ключ в формате provider:gameName
+        final gameKey = game.identifier.replaceFirst('/', ':');
+        final isRestricted = restrictedGames.contains(gameKey) ||
+            restrictedProviders.contains(game.provider);
+
+        if (isRestricted) {
+          Logger.debug('Игра заблокирована: ${game.title} (${game.provider})');
+        }
+
+        return !isRestricted;
+      }).toList();
 
       Logger.info('Получено ${filteredGames.length} рулеток');
       return filteredGames;
@@ -97,7 +107,9 @@ class RouletteService {
       });
 
       // Загружаем страницу
-      await controller.loadUrl('https://gizbo.casino$playUrl');
+      final fullUrl = 'https://gizbo.casino$playUrl';
+      Logger.info('WebSocket URL: $fullUrl');
+      await controller.loadUrl(fullUrl);
 
       // Ждем получения src iframe
       final iframeSrc = await completer.future;
