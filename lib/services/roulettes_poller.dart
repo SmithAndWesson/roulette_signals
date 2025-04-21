@@ -70,10 +70,7 @@ class RoulettesPoller {
     Logger.info('Анализ рулетки: ${game.title}');
 
     try {
-      final params = await _rouletteService.extractWebSocketParams(
-        game.playUrl,
-        game.id.toString(),
-      );
+      final params = await _rouletteService.extractWebSocketParams(game);
       if (params == null) {
         Logger.warning('Не удалось получить параметры для ${game.title}');
         return;

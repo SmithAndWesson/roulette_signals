@@ -87,13 +87,12 @@ class RouletteService {
     return result;
   }
 
-  Future<WebSocketParams> extractWebSocketParams(
-      String playUrl, String evoSessionId) async {
+  Future<WebSocketParams> extractWebSocketParams(RouletteGame game) async {
+    final controller = WebviewController();
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedCookies = prefs.getString('all_cookies') ?? '';
 
-      final controller = WebviewController();
       await controller.initialize();
 
       // Устанавливаем сохранённые cookies для gizbo.casino
@@ -101,53 +100,34 @@ class RouletteService {
       document.cookie = "$savedCookies";
     ''');
 
-      // Два Completer'а: первый для iframeSrc, второй — для cookieHeader
+      // Загружаем страницу игры
+      final gamePageUrl = 'https://gizbo.casino${game.playUrl}';
+      Logger.info('Load game page: $gamePageUrl');
+      await controller.loadUrl(gamePageUrl);
+
+      // Ждем загрузки страницы и появления iframe
       final iframeCompleter = Completer<String>();
-      final cookieCompleter = Completer<String>();
-
-      // Стартовая стадия: ждем iframe
-      int stage = 0;
-      late String gameUrl;
-
-      // Одна подписка на loadingState
       controller.loadingState.listen((state) async {
         if (state != LoadingState.navigationCompleted) return;
 
         try {
-          if (stage == 0) {
-            // 1) получили iframe src
-            final src = await controller.executeScript('''
+          final src = await controller.executeScript('''
             document.querySelector('iframe')?.src ?? ''
           ''');
-            if (src is String && src.isNotEmpty) {
-              iframeCompleter.complete(src);
-              stage = 1; // переход к следующей стадии
-            } else {
-              iframeCompleter.completeError('iframe не найден');
-            }
+          if (src is String && src.isNotEmpty) {
+            iframeCompleter.complete(src);
           } else {
-            // 2) после загрузки gameUrl — достаём куки
-            final rawJs = await controller.executeScript('document.cookie');
-            final cookieHeader =
-                (rawJs as String).replaceAll(r'\"', '"').replaceAll('"', '');
-            cookieCompleter.complete(cookieHeader);
-            // Больше не нужен слушатель
+            iframeCompleter.completeError('iframe не найден');
           }
         } catch (e) {
-          if (stage == 0)
-            iframeCompleter.completeError(e);
-          else
-            cookieCompleter.completeError(e);
+          iframeCompleter.completeError(e);
         }
       });
 
-      // 1) Загружаем первую страницу, чтобы вытянуть iframe
-      final fullUrl = 'https://gizbo.casino$playUrl';
-      Logger.info('Load gizbo page: $fullUrl');
-      await controller.loadUrl(fullUrl);
       final iframeSrc = await iframeCompleter.future;
+      Logger.debug('Получен iframe src: $iframeSrc');
 
-      // 2) Парсим iframeSrc → options → gameUrl
+      // Парсим iframeSrc → options → gameUrl
       final iframeUri = Uri.parse(iframeSrc);
       final optionsEncoded = iframeUri.queryParameters['options'];
       if (optionsEncoded == null) {
@@ -160,25 +140,14 @@ class RouletteService {
       if (launchOpts == null || launchOpts['game_url'] == null) {
         throw Exception('game_url не найден в launch_options');
       }
-      gameUrl = launchOpts['game_url'] as String;
+      final gameUrl = launchOpts['game_url'] as String;
+      Logger.debug('Получен game_url: $gameUrl');
 
-      // 3) Загружаем страницу gameUrl, чтобы WebView выставил реальные куки
-      Logger.info('Load game page: $gameUrl');
-      await controller.loadUrl(gameUrl);
-
-      // и ждём извлечения куки
-      final cookieHeader = await cookieCompleter.future;
-      Logger.debug('Real royal cookies: $cookieHeader');
-
-      // 4) Парсим params из gameUrl
+      // Парсим params из gameUrl
       final gameUri = Uri.parse(gameUrl);
       final paramsEncoded = gameUri.queryParameters['params'];
-      final jsessionId = gameUri.queryParameters['JSESSIONID'];
       if (paramsEncoded == null) {
         throw Exception('Параметр params не найден в game_url');
-      }
-      if (jsessionId == null) {
-        throw Exception('JSESSIONID не найден в game_url');
       }
       final paramsNorm = _normalizeBase64(paramsEncoded);
       final paramsJson = utf8.decode(base64.decode(paramsNorm));
@@ -189,7 +158,30 @@ class RouletteService {
       final uaLaunchId = paramsMap['ua_launch_id'] ?? '';
       final clientVersion = '6.20250415.70424.51183-8793aee83a';
 
-      // 5) Формируем instance
+      // 1️⃣ после того как ты распарсил gameUrl, ПЕРЕХОДИМ на royal.evo-games.com
+      await controller
+          .loadUrl('https://royal.evo-games.com/'); // любой URL этого домена
+
+      // 2️⃣ ждём появления localStorage['evo.video.sessionId']
+      String? evoSessionId;
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+
+      while (DateTime.now().isBefore(deadline) && evoSessionId == null) {
+        final value = await controller.executeScript(
+            "localStorage.getItem('evo.video.sessionId') ?? '';");
+
+        if (value is String && value.isNotEmpty) {
+          evoSessionId = value;
+        } else {
+          await Future.delayed(const Duration(milliseconds: 250));
+        }
+      }
+
+      if (evoSessionId == null) {
+        throw Exception('evo.video.sessionId не найден: таймаут 10 с.');
+      }
+
+      // Формируем instance
       final instance = '${Random().nextInt(1 << 20)}-$evoSessionId-$vtId';
 
       return WebSocketParams(
@@ -197,13 +189,16 @@ class RouletteService {
         vtId: vtId,
         uaLaunchId: uaLaunchId,
         clientVersion: clientVersion,
-        evoSessionId: jsessionId,
+        evoSessionId: evoSessionId,
         instance: instance,
-        cookieHeader: cookieHeader,
+        cookieHeader: savedCookies,
       );
     } catch (e) {
       Logger.error('Ошибка извлечения параметров WebSocket', e);
       rethrow;
+    } finally {
+      // Закрываем WebView
+      await controller.dispose();
     }
   }
 }

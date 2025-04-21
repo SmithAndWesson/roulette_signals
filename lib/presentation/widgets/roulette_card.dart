@@ -86,10 +86,7 @@ class RouletteCard extends StatelessWidget {
   Future<void> _connectToGame() async {
     try {
       Logger.info('Подключение к рулетке: ${game.title}');
-      final params = await RouletteService().extractWebSocketParams(
-        game.playUrl,
-        game.id.toString(),
-      );
+      final params = await RouletteService().extractWebSocketParams(game);
       if (params != null) {
         onConnect(params);
       }
