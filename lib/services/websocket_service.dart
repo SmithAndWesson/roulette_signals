@@ -30,32 +30,42 @@ class WebSocketService {
         }
       });
 
-      _channel?.stream.listen(
+      final sub = _channel!.stream.listen(
         (message) {
-          Logger.debug('Получено сообщение: $message');
+          Logger.debug('WS ⇠ $message');
+
+          // 1️⃣ Пробуем декодировать JSON
+          Map<String, dynamic>? decoded;
           try {
-            final results = RecentResults.fromJson(message);
+            final tmp = jsonDecode(message);
+            if (tmp is Map<String, dynamic>) decoded = tmp;
+          } on FormatException {
+            // это пинг‑строка или просто мусор – пропускаем
+            return;
+          }
+
+          if (decoded == null) return; // не карта – пропускаем
+          if (decoded['type'] != 'roulette.recentResults') return;
+
+          // 2️⃣ Есть нужное событие – пытаемся распарсить
+          try {
+            final results = RecentResults.fromJson(decoded);
             if (!completer.isCompleted) {
               completer.complete(results);
             }
-          } catch (e) {
-            Logger.error('Ошибка парсинга результатов', e);
-            if (!completer.isCompleted) {
-              completer.complete(null);
-            }
+            // если нужен только ПЕРВЫЙ recentResults – можно тут же unsub:
+            // sub.cancel();
+          } catch (e, st) {
+            Logger.error('Не смог распарсить recentResults', e, st);
           }
         },
-        onError: (error) {
-          Logger.error('Ошибка WebSocket', error);
-          if (!completer.isCompleted) {
-            completer.complete(null);
-          }
+        onError: (error, st) {
+          Logger.error('Ошибка WebSocket', error, st);
+          if (!completer.isCompleted) completer.complete(null);
         },
         onDone: () {
-          Logger.info('WebSocket соединение закрыто');
-          if (!completer.isCompleted) {
-            completer.complete(null);
-          }
+          Logger.info('WebSocket закрыт');
+          if (!completer.isCompleted) completer.complete(null);
         },
       );
 

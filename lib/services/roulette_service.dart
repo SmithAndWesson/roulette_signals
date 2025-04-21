@@ -106,25 +106,32 @@ class RouletteService {
       await controller.loadUrl(gamePageUrl);
 
       // Ждем загрузки страницы и появления iframe
-      final iframeCompleter = Completer<String>();
-      controller.loadingState.listen((state) async {
-        if (state != LoadingState.navigationCompleted) return;
+      // final iframeCompleter = Completer<String>();
+      // controller.loadingState.listen((state) async {
+      //   if (state != LoadingState.navigationCompleted) return;
 
-        try {
-          final src = await controller.executeScript('''
-            document.querySelector('iframe')?.src ?? ''
-          ''');
-          if (src is String && src.isNotEmpty) {
-            iframeCompleter.complete(src);
-          } else {
-            iframeCompleter.completeError('iframe не найден');
-          }
-        } catch (e) {
-          iframeCompleter.completeError(e);
-        }
-      });
+      //   try {
+      //     final src = await controller.executeScript('''
+      //       document.querySelector('iframe')?.src ?? ''
+      //     ''');
+      //     if (src is String && src.isNotEmpty) {
+      //       iframeCompleter.complete(src);
+      //     } else {
+      //       iframeCompleter.completeError('iframe не найден');
+      //     }
+      //   } catch (e) {
+      //     iframeCompleter.completeError(e);
+      //   }
+      // });
 
-      final iframeSrc = await iframeCompleter.future;
+      // final iframeSrc = await iframeCompleter.future;
+      await controller.loadingState
+          .firstWhere((s) => s == LoadingState.navigationCompleted);
+
+      final iframeSrc = await controller
+          .executeScript("document.querySelector('iframe')?.src ?? ''");
+      if (iframeSrc.isEmpty) throw Exception('iframe не найден');
+
       Logger.debug('Получен iframe src: $iframeSrc');
 
       // Парсим iframeSrc → options → gameUrl
@@ -159,8 +166,7 @@ class RouletteService {
       final clientVersion = '6.20250415.70424.51183-8793aee83a';
 
       // 1️⃣ после того как ты распарсил gameUrl, ПЕРЕХОДИМ на royal.evo-games.com
-      await controller
-          .loadUrl('https://royal.evo-games.com/'); // любой URL этого домена
+      await controller.loadUrl(gameUrl); // любой URL этого домена
 
       // 2️⃣ ждём появления localStorage['evo.video.sessionId']
       String? evoSessionId;
@@ -173,16 +179,28 @@ class RouletteService {
         if (value is String && value.isNotEmpty) {
           evoSessionId = value;
         } else {
-          await Future.delayed(const Duration(milliseconds: 250));
+          await Future.delayed(const Duration(milliseconds: 1250));
         }
       }
 
       if (evoSessionId == null) {
-        throw Exception('evo.video.sessionId не найден: таймаут 10 с.');
+        throw Exception('evo.video.sessionId не найден: таймаут 10 с.');
       }
 
-      // Формируем instance
-      final instance = '${Random().nextInt(1 << 20)}-$evoSessionId-$vtId';
+      // 3️⃣ Берём ВСЕ куки текущего документа
+      final rawCookies = await controller.executeScript('document.cookie');
+      // например: "cdn=https://static.egcdn.com; lang=en; locale=en-GB; EVOSESSIONID=…"
+
+      // 4️⃣ Подстраховка: убеждаемся, что EVOSESSIONID есть;
+      //   если нет — дописываем вручную из evoSessionId
+      final cookieHeader = rawCookies.contains('EVOSESSIONID=')
+          ? rawCookies
+          : '$rawCookies; EVOSESSIONID=$evoSessionId';
+
+      // 5️⃣ Дальше формируем instance, URL WebSocket и возвращаем WebSocketParams
+      final rnd = Random().nextInt(1 << 20).toRadixString(36);
+      final shortSess = evoSessionId.substring(0, 16);
+      final instance = '$rnd-$shortSess-$vtId';
 
       return WebSocketParams(
         tableId: tableId,
@@ -191,7 +209,7 @@ class RouletteService {
         clientVersion: clientVersion,
         evoSessionId: evoSessionId,
         instance: instance,
-        cookieHeader: savedCookies,
+        cookieHeader: cookieHeader,
       );
     } catch (e) {
       Logger.error('Ошибка извлечения параметров WebSocket', e);

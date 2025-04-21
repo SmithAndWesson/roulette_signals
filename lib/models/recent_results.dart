@@ -8,6 +8,11 @@ class RecentResults {
   });
 
   factory RecentResults.fromJson(Map<String, dynamic> json) {
+    final args = json['args'];
+    if (json['type'] != 'roulette.recentResults' || args is! Map) {
+      throw FormatException('Not recentResults');
+    }
+
     final List<dynamic> numbersJson = json['recentResults'] as List;
     return RecentResults(
       numbers: numbersJson.map((n) => n as int).toList(),
