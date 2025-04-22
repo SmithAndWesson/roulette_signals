@@ -16,6 +16,8 @@ class RoulettesPoller {
   List<RouletteGame> _games = [];
   Duration _pollInterval;
   final Function(String, List<int>) onSignalDetected;
+  DateTime? _lastUpdateTime;
+  static const Duration _minUpdateInterval = Duration(milliseconds: 100);
 
   RoulettesPoller({
     required this.onSignalDetected,
@@ -43,6 +45,7 @@ class RoulettesPoller {
 
       _isRunning = true;
       _currentIndex = 0;
+      _lastUpdateTime = DateTime.now();
       _startTimer();
       Logger.info(
           'Пуллер запущен с интервалом ${_pollInterval.inSeconds} секунд');
@@ -55,16 +58,29 @@ class RoulettesPoller {
     _timer?.cancel();
     _timer = null;
     _isRunning = false;
+    _lastUpdateTime = null;
     Logger.info('Пуллер остановлен');
   }
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(_pollInterval, (_) => _analyzeNextGame());
+    _timer = Timer.periodic(_pollInterval, (_) {
+      if (_isRunning) {
+        _analyzeNextGame();
+      }
+    });
   }
 
   Future<void> _analyzeNextGame() async {
     if (!_isRunning || _games.isEmpty) return;
+
+    // Проверяем минимальный интервал между обновлениями
+    final now = DateTime.now();
+    if (_lastUpdateTime != null &&
+        now.difference(_lastUpdateTime!) < _minUpdateInterval) {
+      return;
+    }
+    _lastUpdateTime = now;
 
     final game = _games[_currentIndex];
     Logger.info('Анализ рулетки: ${game.title}');
@@ -83,7 +99,7 @@ class RoulettesPoller {
       }
 
       final signals = _numberAnalyzer.detectMissingDozenOrRow(results.numbers);
-      if (signals.isNotEmpty) {
+      if (signals.isNotEmpty && _isRunning) {
         Logger.info(
             'Обнаружен сигнал для ${game.title}: ${signals.first.message}');
         onSignalDetected(game.title, results.numbers);

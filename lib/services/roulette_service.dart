@@ -14,9 +14,34 @@ class RouletteService {
   static const String _restrictionsEndpoint =
       'https://gizbo.casino/batch?base[]=api/v2/player&base[]=api/player/stats&base[]=api/v2/player/settings&base[]=api/v3/auth_provider_settings?country=UA&base[]=api/v3/exchange_rates&base[]=api/v3/fixed_exchange_rates&base[]=api/v4/player/limits&base[]=api/v2/games/restrictions?country=UA';
 
+  List<RouletteGame>? _cachedGames;
+  DateTime? _lastFetchTime;
+  static const Duration _cacheDuration = Duration(minutes: 5);
+
   Future<List<RouletteGame>> fetchLiveRouletteGames() async {
+    // Проверяем кэш
+    if (_cachedGames != null &&
+        _lastFetchTime != null &&
+        DateTime.now().difference(_lastFetchTime!) < _cacheDuration) {
+      return _cachedGames!;
+    }
+
     try {
+      // Добавляем задержку между запросами
+      if (_lastFetchTime != null) {
+        final timeSinceLastFetch = DateTime.now().difference(_lastFetchTime!);
+        if (timeSinceLastFetch < const Duration(seconds: 2)) {
+          await Future.delayed(const Duration(seconds: 2) - timeSinceLastFetch);
+        }
+      }
+
       final response = await http.get(Uri.parse('$_baseUrl$_gamesEndpoint'));
+
+      if (response.statusCode == 429) {
+        // Если получили 429, ждем подольше
+        await Future.delayed(const Duration(seconds: 5));
+        return fetchLiveRouletteGames(); // Рекурсивный вызов
+      }
 
       if (response.statusCode != 200) {
         throw Exception('Ошибка получения списка игр: ${response.statusCode}');
@@ -39,7 +64,6 @@ class RouletteService {
       final restrictedGames = List<String>.from(restrictions['games'] ?? []);
 
       final filteredGames = rouletteGames.where((game) {
-        // формируем ключ в формате provider:gameName
         final gameKey = game.identifier.replaceFirst('/', ':');
         final isRestricted = restrictedGames.contains(gameKey) ||
             restrictedProviders.contains(game.provider);
@@ -51,10 +75,19 @@ class RouletteService {
         return !isRestricted;
       }).toList();
 
+      // Сохраняем в кэш
+      _cachedGames = filteredGames;
+      _lastFetchTime = DateTime.now();
+
       Logger.info('Получено ${filteredGames.length} рулеток');
       return filteredGames;
     } catch (e) {
       Logger.error('Ошибка при получении списка рулеток', e);
+      // В случае ошибки возвращаем кэшированные данные, если они есть
+      if (_cachedGames != null) {
+        Logger.info('Используем кэшированные данные');
+        return _cachedGames!;
+      }
       rethrow;
     }
   }
@@ -85,6 +118,19 @@ class RouletteService {
       result[key] = value;
     }
     return result;
+  }
+
+  Future<String> _waitIframeSrc(WebviewController c,
+      {Duration timeout = const Duration(seconds: 10)}) async {
+    final deadline = DateTime.now().add(timeout);
+
+    while (DateTime.now().isBefore(deadline)) {
+      final src =
+          await c.executeScript("document.querySelector('iframe')?.src ?? ''");
+      if (src.isNotEmpty) return src;
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    throw Exception('iframe не найден (таймаут ${timeout.inSeconds} с)');
   }
 
   Future<WebSocketParams> extractWebSocketParams(RouletteGame game) async {
@@ -128,10 +174,11 @@ class RouletteService {
       await controller.loadingState
           .firstWhere((s) => s == LoadingState.navigationCompleted);
 
-      final iframeSrc = await controller
-          .executeScript("document.querySelector('iframe')?.src ?? ''");
-      if (iframeSrc.isEmpty) throw Exception('iframe не найден');
+      // final iframeSrc = await controller
+      //     .executeScript("document.querySelector('iframe')?.src ?? ''");
+      // if (iframeSrc.isEmpty) throw Exception('iframe не найден');
 
+      final iframeSrc = await _waitIframeSrc(controller);
       Logger.debug('Получен iframe src: $iframeSrc');
 
       // Парсим iframeSrc → options → gameUrl
@@ -173,6 +220,7 @@ class RouletteService {
       final deadline = DateTime.now().add(const Duration(seconds: 10));
 
       while (DateTime.now().isBefore(deadline) && evoSessionId == null) {
+        await Future.delayed(const Duration(milliseconds: 5000));
         final value = await controller.executeScript(
             "localStorage.getItem('evo.video.sessionId') ?? '';");
 

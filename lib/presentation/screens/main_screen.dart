@@ -52,16 +52,22 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _loadGames() async {
     try {
-      setState(() => _isLoading = true);
+      if (mounted) {
+        setState(() => _isLoading = true);
+      }
       final games = await _rouletteService.fetchLiveRouletteGames();
-      setState(() {
-        _games = games;
-        _allProviders = games.map((g) => g.provider).toSet().toList()..sort();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _games = games;
+          _allProviders = games.map((g) => g.provider).toSet().toList()..sort();
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       Logger.error('Ошибка загрузки игр', e);
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -180,7 +186,23 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Roulette Signals'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () async {
+            _roulettesPoller.stop();
+            _soundPlayer.dispose();
+            if (mounted) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.music_note),
+            onPressed: () {
+              _soundPlayer.playPing();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isLoading ? null : _loadGames,

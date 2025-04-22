@@ -26,6 +26,14 @@ class _LoginScreenState extends State<LoginScreen> {
     _initWebView();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isInitialized) {
+      _initWebView();
+    }
+  }
+
   Future<void> _initWebView() async {
     try {
       await _controller.initialize();

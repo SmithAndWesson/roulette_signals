@@ -56,7 +56,7 @@ class _MyHomeState extends State<MyHome> {
   void _handleLoginSuccess(AuthResponse response) {
     Logger.info('Успешный вход: ${response.jwtToken}');
 
-    Navigator.pushReplacement(
+    Navigator.push(
       context,
       MaterialPageRoute(
           builder: (context) => MainScreen(authResponse: response)),
