@@ -10,14 +10,15 @@ class RoulettesPoller {
   final RouletteService _rouletteService;
   final WebSocketService _webSocketService;
   final NumberAnalyzer _numberAnalyzer;
+  final Function(String, List<int>) onSignalDetected;
+  Duration _pollInterval;
   Timer? _timer;
   bool _isRunning = false;
-  int _currentIndex = 0;
-  List<RouletteGame> _games = [];
-  Duration _pollInterval;
-  final Function(String, List<int>) onSignalDetected;
+  bool _isAnalyzing = false; // Флаг для отслеживания состояния анализа
   DateTime? _lastUpdateTime;
   static const Duration _minUpdateInterval = Duration(milliseconds: 100);
+  int _currentIndex = 0;
+  List<RouletteGame> _games = [];
 
   RoulettesPoller({
     required this.onSignalDetected,
@@ -28,7 +29,11 @@ class RoulettesPoller {
   })  : _pollInterval = pollInterval ?? const Duration(seconds: 30),
         _rouletteService = rouletteService ?? RouletteService(),
         _webSocketService = webSocketService ?? WebSocketService(),
-        _numberAnalyzer = numberAnalyzer ?? NumberAnalyzer();
+        _numberAnalyzer = numberAnalyzer ?? NumberAnalyzer() {
+    if (pollInterval == null) {
+      Logger.info('Используется интервал по умолчанию: 30 секунд');
+    }
+  }
 
   Future<void> start() async {
     if (_isRunning) {
@@ -46,6 +51,11 @@ class RoulettesPoller {
       _isRunning = true;
       _currentIndex = 0;
       _lastUpdateTime = DateTime.now();
+
+      // Выполняем первый анализ сразу
+      _analyzeNextGame();
+
+      // Запускаем таймер для последующих анализов
       _startTimer();
       Logger.info(
           'Пуллер запущен с интервалом ${_pollInterval.inSeconds} секунд');
@@ -58,57 +68,10 @@ class RoulettesPoller {
     _timer?.cancel();
     _timer = null;
     _isRunning = false;
+    _isAnalyzing = false; // Сбрасываем флаг анализа
     _lastUpdateTime = null;
+    _currentIndex = 0;
     Logger.info('Пуллер остановлен');
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(_pollInterval, (_) {
-      if (_isRunning) {
-        _analyzeNextGame();
-      }
-    });
-  }
-
-  Future<void> _analyzeNextGame() async {
-    if (!_isRunning || _games.isEmpty) return;
-
-    // Проверяем минимальный интервал между обновлениями
-    final now = DateTime.now();
-    if (_lastUpdateTime != null &&
-        now.difference(_lastUpdateTime!) < _minUpdateInterval) {
-      return;
-    }
-    _lastUpdateTime = now;
-
-    final game = _games[_currentIndex];
-    Logger.info('Анализ рулетки: ${game.title}');
-
-    try {
-      final params = await _rouletteService.extractWebSocketParams(game);
-      if (params == null) {
-        Logger.warning('Не удалось получить параметры для ${game.title}');
-        return;
-      }
-
-      final results = await _webSocketService.fetchRecentResults(params);
-      if (results == null) {
-        Logger.warning('Не удалось получить результаты для ${game.title}');
-        return;
-      }
-
-      final signals = _numberAnalyzer.detectMissingDozenOrRow(results.numbers);
-      if (signals.isNotEmpty && _isRunning) {
-        Logger.info(
-            'Обнаружен сигнал для ${game.title}: ${signals.first.message}');
-        onSignalDetected(game.title, results.numbers);
-      }
-    } catch (e) {
-      Logger.error('Ошибка анализа ${game.title}', e);
-    }
-
-    _currentIndex = (_currentIndex + 1) % _games.length;
   }
 
   void updateInterval(Duration newInterval) {
@@ -116,8 +79,78 @@ class RoulettesPoller {
 
     _pollInterval = newInterval;
     if (_isRunning) {
+      _timer?.cancel();
       _startTimer();
       Logger.info('Интервал обновлен до ${newInterval.inSeconds} секунд');
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(_pollInterval, (_) {
+      if (_isRunning && !_isAnalyzing) {
+        // Проверяем, что предыдущий анализ завершен
+        _analyzeNextGame();
+      }
+    });
+  }
+
+  Future<void> _analyzeNextGame() async {
+    if (!_isRunning || _games.isEmpty || _isAnalyzing)
+      return; // Проверяем, что анализ не запущен
+
+    _isAnalyzing = true; // Устанавливаем флаг начала анализа
+    try {
+      // Проверяем минимальный интервал между обновлениями
+      final now = DateTime.now();
+      if (_lastUpdateTime != null &&
+          now.difference(_lastUpdateTime!) < _minUpdateInterval) {
+        return;
+      }
+      _lastUpdateTime = now;
+
+      // Получаем только рулетки Evolution
+      final evolutionGames =
+          _games.where((game) => game.provider == 'evolution').toList();
+      if (evolutionGames.isEmpty) {
+        _currentIndex = (_currentIndex + 1) % _games.length;
+        return;
+      }
+
+      // Анализируем все рулетки Evolution по очереди
+      for (final game in evolutionGames) {
+        if (!_isRunning) break; // Прерываем если пуллер остановлен
+
+        Logger.info('Анализ рулетки: ${game.title}');
+
+        try {
+          final params = await _rouletteService.extractWebSocketParams(game);
+          if (params == null) {
+            Logger.warning('Не удалось получить параметры для ${game.title}');
+            continue;
+          }
+
+          final results = await _webSocketService.fetchRecentResults(params);
+          if (results == null) {
+            Logger.warning('Не удалось получить результаты для ${game.title}');
+            continue;
+          }
+
+          final signals =
+              _numberAnalyzer.detectMissingDozenOrRow(results.numbers);
+          if (signals.isNotEmpty && _isRunning) {
+            Logger.info(
+                'Обнаружен сигнал для ${game.title}: ${signals.first.message}');
+            onSignalDetected(game.title, results.numbers);
+          }
+        } catch (e) {
+          Logger.error('Ошибка анализа ${game.title}', e);
+        }
+      }
+
+      _currentIndex = (_currentIndex + 1) % evolutionGames.length;
+    } finally {
+      _isAnalyzing = false; // Сбрасываем флаг по завершении анализа
     }
   }
 

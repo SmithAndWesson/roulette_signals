@@ -28,7 +28,7 @@ class _MainScreenState extends State<MainScreen> {
   final _rouletteService = RouletteService();
   final _websocketService = WebSocketService();
   final _numberAnalyzer = NumberAnalyzer();
-  final _soundPlayer = SoundPlayer();
+  final _soundPlayer = SoundPlayer.i;
   List<RouletteGame> _games = [];
   String _selectedProvider = 'All';
   List<String> _allProviders = [];
@@ -38,6 +38,7 @@ class _MainScreenState extends State<MainScreen> {
   Map<String, RecentResults?> _recentResults = {};
   Map<String, List<Signal>> _gameSignals = {};
   Duration _analysisInterval = const Duration(seconds: 30);
+  String? _currentAnalyzingGameId;
   late final RoulettesPoller _roulettesPoller;
 
   @override
@@ -78,6 +79,7 @@ class _MainScreenState extends State<MainScreen> {
         _roulettesPoller.start();
       } else {
         _roulettesPoller.stop();
+        _currentAnalyzingGameId = null;
       }
     });
   }
@@ -226,6 +228,14 @@ class _MainScreenState extends State<MainScreen> {
                     value: _analysisInterval,
                     items: const [
                       DropdownMenuItem(
+                        value: Duration(seconds: 1),
+                        child: Text('1 сек'),
+                      ),
+                      DropdownMenuItem(
+                        value: Duration(seconds: 2),
+                        child: Text('2 сек'),
+                      ),
+                      DropdownMenuItem(
                         value: Duration(seconds: 15),
                         child: Text('15 сек'),
                       ),
@@ -285,6 +295,8 @@ class _MainScreenState extends State<MainScreen> {
                                 onConnect: (params) => _fetchRecentResults(
                                     game.id.toString(), params),
                                 signals: _gameSignals[game.id] ?? [],
+                                isAnalyzing: _isAnalyzing &&
+                                    _currentAnalyzingGameId == game.id,
                               ))
                           .toList(),
                     ),

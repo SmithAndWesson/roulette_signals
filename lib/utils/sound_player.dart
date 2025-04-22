@@ -1,21 +1,26 @@
-import 'package:just_audio/just_audio.dart';
-import 'package:roulette_signals/utils/logger.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'logger.dart';
 
 class SoundPlayer {
-  static const String _pingSoundPath = 'assets/sounds/ping.mp3';
-  final _audioPlayer = AudioPlayer();
+  SoundPlayer._();
 
+  /// Глобальный доступ: `SoundPlayer.i.playPing();`
+  static final SoundPlayer i = SoundPlayer._();
+
+  static const _pingAsset = 'sounds/ping.mp3';
+
+  /// Один экземпляр плеера на всё приложение.
+  final _player = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
+
+  /// Проиграть короткий «пинг».
   Future<void> playPing() async {
     try {
-      await _audioPlayer
-          .setAsset(_pingSoundPath); // ex: assets/sounds/douzina.mp3
-      await _audioPlayer.play();
+      // В 5.x assets проигрываются через AudioCache автоматически.
+      await _player.play(AssetSource(_pingAsset), volume: 1.0);
     } catch (e, st) {
       Logger.error('Ошибка воспроизведения звука', e, st);
     }
   }
 
-  void dispose() {
-    _audioPlayer.dispose();
-  }
+  Future<void> dispose() => _player.dispose();
 }

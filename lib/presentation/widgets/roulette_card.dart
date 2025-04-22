@@ -4,12 +4,14 @@ import 'package:roulette_signals/models/signal.dart';
 import 'package:roulette_signals/models/websocket_params.dart';
 import 'package:roulette_signals/services/roulette_service.dart';
 import 'package:roulette_signals/utils/logger.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class RouletteCard extends StatelessWidget {
   final RouletteGame game;
   final String evoSessionId;
   final Function(WebSocketParams) onConnect;
   final List<Signal> signals;
+  final bool isAnalyzing;
 
   const RouletteCard({
     Key? key,
@@ -17,52 +19,70 @@ class RouletteCard extends StatelessWidget {
     required this.evoSessionId,
     required this.onConnect,
     this.signals = const [],
+    this.isAnalyzing = false,
   }) : super(key: key);
+
+  Future<void> _launchGame() async {
+    final gamePageUrl = 'https://gizbo.casino${game.playUrl}';
+    try {
+      final uri = Uri.parse(gamePageUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      } else {
+        // Пробуем альтернативный способ
+        await launch(gamePageUrl);
+      }
+    } catch (e) {
+      Logger.error('Ошибка при открытии ссылки: $gamePageUrl', e);
+    }
+  }
+
+  Future<void> _connectToGame() async {
+    try {
+      Logger.info('Подключение к рулетке: ${game.title}');
+      final params = await RouletteService().extractWebSocketParams(game);
+      if (params != null) {
+        onConnect(params);
+      }
+    } catch (e) {
+      Logger.error('Ошибка подключения к рулетке', e);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: InkWell(
-        onTap: () => _connectToGame(),
+        onTap: () async {
+          await _launchGame();
+          await _connectToGame();
+        },
         child: Padding(
           padding: const EdgeInsets.all(8.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      game.title,
-                      style: Theme.of(context).textTheme.titleMedium,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (signals.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${signals.length} сигнал${signals.length > 1 ? 'а' : ''}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                ],
+              Text(
+                game.title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Text(
                 game.provider,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
+              if (isAnalyzing) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Анализ',
+                  style: TextStyle(
+                    color: Colors.green,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
               if (signals.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 ...signals.map((signal) => Padding(
@@ -81,17 +101,5 @@ class RouletteCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _connectToGame() async {
-    try {
-      Logger.info('Подключение к рулетке: ${game.title}');
-      final params = await RouletteService().extractWebSocketParams(game);
-      if (params != null) {
-        onConnect(params);
-      }
-    } catch (e) {
-      Logger.error('Ошибка подключения к рулетке', e);
-    }
   }
 }
