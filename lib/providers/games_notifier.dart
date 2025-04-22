@@ -1,0 +1,26 @@
+import 'package:flutter/foundation.dart';
+import 'package:roulette_signals/models/roulette_game.dart';
+
+class GamesNotifier extends ChangeNotifier {
+  final List<RouletteGame> _games = [];
+
+  List<RouletteGame> get games => List.unmodifiable(_games);
+
+  void setGames(List<RouletteGame> games) {
+    _games.clear();
+    _games.addAll(games);
+    notifyListeners();
+  }
+
+  void setAnalyzing(String id, bool value) {
+    try {
+      final game = _games.firstWhere((g) => g.id == id);
+      if (game.isAnalyzing != value) {
+        game.isAnalyzing = value;
+        notifyListeners();
+      }
+    } catch (e) {
+      // Игра не найдена, игнорируем
+    }
+  }
+}

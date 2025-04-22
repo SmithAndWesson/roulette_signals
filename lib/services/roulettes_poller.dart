@@ -11,6 +11,8 @@ class RoulettesPoller {
   final WebSocketService _webSocketService;
   final NumberAnalyzer _numberAnalyzer;
   final Function(String, List<int>) onSignalDetected;
+  final Function(String) onAnalysisStart;
+  final Function(String) onAnalysisStop;
   Duration _pollInterval;
   Timer? _timer;
   bool _isRunning = false;
@@ -22,6 +24,8 @@ class RoulettesPoller {
 
   RoulettesPoller({
     required this.onSignalDetected,
+    required this.onAnalysisStart,
+    required this.onAnalysisStop,
     Duration? pollInterval,
     RouletteService? rouletteService,
     WebSocketService? webSocketService,
@@ -122,6 +126,7 @@ class RoulettesPoller {
         if (!_isRunning) break; // Прерываем если пуллер остановлен
 
         Logger.info('Анализ рулетки: ${game.title}');
+        onAnalysisStart(game.id);
 
         try {
           final params = await _rouletteService.extractWebSocketParams(game);
@@ -145,6 +150,8 @@ class RoulettesPoller {
           }
         } catch (e) {
           Logger.error('Ошибка анализа ${game.title}', e);
+        } finally {
+          onAnalysisStop(game.id);
         }
       }
 

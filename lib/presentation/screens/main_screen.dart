@@ -11,6 +11,8 @@ import 'package:roulette_signals/services/roulettes_poller.dart';
 import 'package:roulette_signals/services/websocket_service.dart';
 import 'package:roulette_signals/utils/logger.dart';
 import 'package:roulette_signals/utils/sound_player.dart';
+import 'package:roulette_signals/providers/games_notifier.dart';
+import 'package:provider/provider.dart';
 
 class MainScreen extends StatefulWidget {
   final AuthResponse authResponse;
@@ -47,8 +49,18 @@ class _MainScreenState extends State<MainScreen> {
     _roulettesPoller = RoulettesPoller(
       onSignalDetected: _handlePollerSignal,
       pollInterval: _analysisInterval,
+      onAnalysisStart: _onAnalysisStart,
+      onAnalysisStop: _onAnalysisStop,
     );
     _loadGames();
+  }
+
+  void _onAnalysisStart(String gameId) {
+    context.read<GamesNotifier>().setAnalyzing(gameId, true);
+  }
+
+  void _onAnalysisStop(String gameId) {
+    context.read<GamesNotifier>().setAnalyzing(gameId, false);
   }
 
   Future<void> _loadGames() async {
@@ -63,6 +75,7 @@ class _MainScreenState extends State<MainScreen> {
           _allProviders = games.map((g) => g.provider).toSet().toList()..sort();
           _isLoading = false;
         });
+        context.read<GamesNotifier>().setGames(games);
       }
     } catch (e) {
       Logger.error('Ошибка загрузки игр', e);
@@ -282,23 +295,27 @@ class _MainScreenState extends State<MainScreen> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : GridView.count(
-                      crossAxisCount: 5,
-                      childAspectRatio: 1.0,
-                      mainAxisSpacing: 8.0,
-                      crossAxisSpacing: 8.0,
-                      padding: const EdgeInsets.all(16.0),
-                      children: filteredGames
-                          .map((game) => RouletteCard(
-                                game: game,
-                                evoSessionId: widget.authResponse.evoSessionId,
-                                onConnect: (params) => _fetchRecentResults(
-                                    game.id.toString(), params),
-                                signals: _gameSignals[game.id] ?? [],
-                                isAnalyzing: _isAnalyzing &&
-                                    _currentAnalyzingGameId == game.id,
-                              ))
-                          .toList(),
+                  : Consumer<GamesNotifier>(
+                      builder: (context, gamesNotifier, child) {
+                        return GridView.count(
+                          crossAxisCount: 5,
+                          childAspectRatio: 1.0,
+                          mainAxisSpacing: 8.0,
+                          crossAxisSpacing: 8.0,
+                          padding: const EdgeInsets.all(16.0),
+                          children: filteredGames
+                              .map((game) => RouletteCard(
+                                    game: game,
+                                    evoSessionId:
+                                        widget.authResponse.evoSessionId,
+                                    onConnect: (params) => _fetchRecentResults(
+                                        game.id.toString(), params),
+                                    signals: _gameSignals[game.id] ?? [],
+                                    isAnalyzing: game.isAnalyzing,
+                                  ))
+                              .toList(),
+                        );
+                      },
                     ),
             ),
           ],

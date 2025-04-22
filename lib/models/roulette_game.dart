@@ -6,6 +6,7 @@ class RouletteGame {
   final String id;
   final String slug;
   final List<String> collections;
+  bool isAnalyzing;
 
   RouletteGame({
     required this.title,
@@ -15,6 +16,7 @@ class RouletteGame {
     required this.id,
     required this.slug,
     required this.collections,
+    this.isAnalyzing = false,
   });
 
   factory RouletteGame.fromJson(Map<String, dynamic> json) {
