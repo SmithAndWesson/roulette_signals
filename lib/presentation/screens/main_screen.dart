@@ -93,6 +93,7 @@ class _MainScreenState extends State<MainScreen> {
       } else {
         _roulettesPoller.stop();
         _currentAnalyzingGameId = null;
+        _gameSignals.clear();
       }
     });
   }

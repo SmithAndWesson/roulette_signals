@@ -140,10 +140,10 @@ class RouletteService {
     final deadline = DateTime.now().add(maxWait);
     while (DateTime.now().isBefore(deadline)) {
       // 5 с пауза только ОДИН раз за всё время жизни приложения
-      if (!_firstDelayDone) {
-        await Future.delayed(const Duration(seconds: 5));
-        _firstDelayDone = true;
-      }
+      // if (!_firstDelayDone) {
+      await Future.delayed(const Duration(seconds: 5));
+      // _firstDelayDone = true;
+      // }
       final id = await c
           .executeScript("localStorage.getItem('evo.video.sessionId') ?? ''");
       if (id.isNotEmpty) return id;

@@ -23,4 +23,12 @@ class GamesNotifier extends ChangeNotifier {
       // Игра не найдена, игнорируем
     }
   }
+
+  /// Снять флаг анализа у всех игр и уведомить слушателей.
+  void clearAllAnalyzing() {
+    for (final g in _games) {
+      g.isAnalyzing = false;
+    }
+    notifyListeners(); // ✅ вызов внутри класса — разрешён
+  }
 }
