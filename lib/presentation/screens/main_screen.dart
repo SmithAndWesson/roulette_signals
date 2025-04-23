@@ -39,7 +39,7 @@ class _MainScreenState extends State<MainScreen> {
   DateTime? _lastAnalysisTime;
   Map<String, RecentResults?> _recentResults = {};
   Map<String, List<Signal>> _gameSignals = {};
-  Duration _analysisInterval = const Duration(seconds: 30);
+  Duration _analysisInterval = const Duration(seconds: 1);
   String? _currentAnalyzingGameId;
   late final RoulettesPoller _roulettesPoller;
 
@@ -185,6 +185,10 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> _cleanupResources() async {
+    _roulettesPoller.stop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredGames = _games
@@ -204,8 +208,7 @@ class _MainScreenState extends State<MainScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () async {
-            _roulettesPoller.stop();
-            _soundPlayer.dispose();
+            await _cleanupResources();
             if (mounted) {
               Navigator.of(context).pop();
             }
@@ -326,8 +329,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
-    _roulettesPoller.stop();
-    _soundPlayer.dispose();
+    _cleanupResources();
     super.dispose();
   }
 }

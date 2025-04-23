@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:roulette_signals/models/roulette_game.dart';
-import 'package:roulette_signals/models/websocket_params.dart';
 import 'package:roulette_signals/services/number_analyzer.dart';
 import 'package:roulette_signals/services/roulette_service.dart';
 import 'package:roulette_signals/services/websocket_service.dart';

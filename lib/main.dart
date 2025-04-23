@@ -4,10 +4,16 @@ import 'package:roulette_signals/models/game_models.dart';
 import 'package:roulette_signals/presentation/screens/login_screen.dart';
 import 'package:roulette_signals/presentation/screens/main_screen.dart';
 import 'package:roulette_signals/providers/games_notifier.dart';
+import 'package:roulette_signals/utils/expiry_watcher.dart';
 import 'package:roulette_signals/utils/logger.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
+  // Запускаем проверку после инициализации приложения
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    ExpiryWatcher.i.start();
+  });
 }
 
 class MyApp extends StatelessWidget {

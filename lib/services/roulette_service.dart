@@ -14,6 +14,8 @@ class RouletteService {
   static const String _restrictionsEndpoint =
       'https://gizbo.casino/batch?base[]=api/v2/player&base[]=api/player/stats&base[]=api/v2/player/settings&base[]=api/v3/auth_provider_settings?country=UA&base[]=api/v3/exchange_rates&base[]=api/v3/fixed_exchange_rates&base[]=api/v4/player/limits&base[]=api/v2/games/restrictions?country=UA';
 
+  static bool _firstDelayDone = false;
+
   List<RouletteGame>? _cachedGames;
   DateTime? _lastFetchTime;
   static const Duration _cacheDuration = Duration(minutes: 5);
@@ -133,6 +135,23 @@ class RouletteService {
     throw Exception('iframe не найден (таймаут ${timeout.inSeconds} с)');
   }
 
+  Future<String> _waitEvoSessionId(WebviewController c,
+      {Duration maxWait = const Duration(seconds: 10)}) async {
+    final deadline = DateTime.now().add(maxWait);
+    while (DateTime.now().isBefore(deadline)) {
+      // 5 с пауза только ОДИН раз за всё время жизни приложения
+      if (!_firstDelayDone) {
+        await Future.delayed(const Duration(seconds: 5));
+        _firstDelayDone = true;
+      }
+      final id = await c
+          .executeScript("localStorage.getItem('evo.video.sessionId') ?? ''");
+      if (id.isNotEmpty) return id;
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    throw TimeoutException('evo.video.sessionId не найден: таймаут 10 с.');
+  }
+
   Future<WebSocketParams> extractWebSocketParams(RouletteGame game) async {
     final controller = WebviewController();
     try {
@@ -152,31 +171,8 @@ class RouletteService {
       await controller.loadUrl(gamePageUrl);
 
       // Ждем загрузки страницы и появления iframe
-      // final iframeCompleter = Completer<String>();
-      // controller.loadingState.listen((state) async {
-      //   if (state != LoadingState.navigationCompleted) return;
-
-      //   try {
-      //     final src = await controller.executeScript('''
-      //       document.querySelector('iframe')?.src ?? ''
-      //     ''');
-      //     if (src is String && src.isNotEmpty) {
-      //       iframeCompleter.complete(src);
-      //     } else {
-      //       iframeCompleter.completeError('iframe не найден');
-      //     }
-      //   } catch (e) {
-      //     iframeCompleter.completeError(e);
-      //   }
-      // });
-
-      // final iframeSrc = await iframeCompleter.future;
       await controller.loadingState
           .firstWhere((s) => s == LoadingState.navigationCompleted);
-
-      // final iframeSrc = await controller
-      //     .executeScript("document.querySelector('iframe')?.src ?? ''");
-      // if (iframeSrc.isEmpty) throw Exception('iframe не найден');
 
       final iframeSrc = await _waitIframeSrc(controller);
       Logger.debug('Получен iframe src: $iframeSrc');
@@ -216,24 +212,7 @@ class RouletteService {
       await controller.loadUrl(gameUrl); // любой URL этого домена
 
       // 2️⃣ ждём появления localStorage['evo.video.sessionId']
-      String? evoSessionId;
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-
-      while (DateTime.now().isBefore(deadline) && evoSessionId == null) {
-        await Future.delayed(const Duration(milliseconds: 5000));
-        final value = await controller.executeScript(
-            "localStorage.getItem('evo.video.sessionId') ?? '';");
-
-        if (value is String && value.isNotEmpty) {
-          evoSessionId = value;
-        } else {
-          await Future.delayed(const Duration(milliseconds: 1250));
-        }
-      }
-
-      if (evoSessionId == null) {
-        throw Exception('evo.video.sessionId не найден: таймаут 10 с.');
-      }
+      final evoSessionId = await _waitEvoSessionId(controller);
 
       // 3️⃣ Берём ВСЕ куки текущего документа
       final rawCookies = await controller.executeScript('document.cookie');

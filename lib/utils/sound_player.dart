@@ -15,12 +15,13 @@ class SoundPlayer {
   /// Проиграть короткий «пинг».
   Future<void> playPing() async {
     try {
-      // В 5.x assets проигрываются через AudioCache автоматически.
-      await _player.play(AssetSource(_pingAsset), volume: 1.0);
+      if (_player.state == PlayerState.stopped) {
+        await _player.play(AssetSource(_pingAsset), volume: 1.0);
+      } else {
+        await _player.resume();
+      }
     } catch (e, st) {
       Logger.error('Ошибка воспроизведения звука', e, st);
     }
   }
-
-  Future<void> dispose() => _player.dispose();
 }
