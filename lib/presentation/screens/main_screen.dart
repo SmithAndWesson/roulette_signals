@@ -39,6 +39,7 @@ class _MainScreenState extends State<MainScreen> {
   DateTime? _lastAnalysisTime;
   Map<String, RecentResults?> _recentResults = {};
   Map<String, List<Signal>> _gameSignals = {};
+  Map<String, List<int>> _recentNumbers = {};
   Duration _analysisInterval = const Duration(seconds: 1);
   String? _currentAnalyzingGameId;
   late final RoulettesPoller _roulettesPoller;
@@ -56,6 +57,11 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onAnalysisStart(String gameId) {
+    setState(() {
+      _gameSignals.remove(gameId); // убираем красные сигналы
+      _recentResults.remove(gameId); // сбрасываем кеш
+      _recentNumbers.remove(gameId); // ⬅︎ убираем 9 последних чисел
+    });
     context.read<GamesNotifier>().setAnalyzing(gameId, true);
   }
 
@@ -94,6 +100,7 @@ class _MainScreenState extends State<MainScreen> {
         _roulettesPoller.stop();
         _currentAnalyzingGameId = null;
         _gameSignals.clear();
+        _recentNumbers.clear();
       }
     });
   }
@@ -115,6 +122,9 @@ class _MainScreenState extends State<MainScreen> {
       final results = await _websocketService.fetchRecentResults(params);
       setState(() {
         _recentResults[gameId] = results;
+        if (results != null) {
+          _recentNumbers[gameId] = results.numbers.take(9).toList();
+        }
       });
 
       if (results != null) {
@@ -146,25 +156,50 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _handlePollerSignal(String gameTitle, List<int> numbers) {
+    // 1️⃣ найдём игру
+    final game = _games.firstWhere(
+      (g) => g.title == gameTitle,
+      orElse: () => RouletteGame(
+        id: '0',
+        title: gameTitle,
+        provider: '',
+        identifier: '',
+        playUrl: '',
+        slug: '',
+        collections: [],
+      ),
+    );
+
+    // 2️⃣ обновим фишки для этой игры
+    setState(() {
+      _recentNumbers[game.id] = numbers.take(9).toList();
+    });
+
+    // 3️⃣ анализируем сигнал и, если он есть – показываем
     final signals = _numberAnalyzer.detectMissingDozenOrRow(numbers);
     if (signals.isNotEmpty) {
-      final game = _games.firstWhere(
-        (g) => g.title == gameTitle,
-        orElse: () => RouletteGame(
-          id: '0',
-          title: gameTitle,
-          provider: '',
-          identifier: '',
-          playUrl: '',
-          slug: '',
-          collections: [],
-        ),
-      );
-      setState(() {
-        _gameSignals[game.id] = signals;
-      });
+      setState(() => _gameSignals[game.id] = signals);
       _handleSignals(game.id, signals);
     }
+    // final signals = _numberAnalyzer.detectMissingDozenOrRow(numbers);
+    // if (signals.isNotEmpty) {
+    //   final game = _games.firstWhere(
+    //     (g) => g.title == gameTitle,
+    //     orElse: () => RouletteGame(
+    //       id: '0',
+    //       title: gameTitle,
+    //       provider: '',
+    //       identifier: '',
+    //       playUrl: '',
+    //       slug: '',
+    //       collections: [],
+    //     ),
+    //   );
+    //   setState(() {
+    //     _gameSignals[game.id] = signals;
+    //   });
+    //   _handleSignals(game.id, signals);
+    // }
   }
 
   Future<void> _handleSignals(String gameId, List<Signal> signals) async {
@@ -216,12 +251,12 @@ class _MainScreenState extends State<MainScreen> {
           },
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.music_note),
-            onPressed: () {
-              _soundPlayer.playPing();
-            },
-          ),
+          // IconButton(
+          //   icon: const Icon(Icons.music_note),
+          //   onPressed: () {
+          //     _soundPlayer.playPing();
+          //   },
+          // ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isLoading ? null : _loadGames,
@@ -316,6 +351,8 @@ class _MainScreenState extends State<MainScreen> {
                                         game.id.toString(), params),
                                     signals: _gameSignals[game.id] ?? [],
                                     isAnalyzing: game.isAnalyzing,
+                                    recentNumbers:
+                                        _recentNumbers[game.id] ?? const [],
                                   ))
                               .toList(),
                         );

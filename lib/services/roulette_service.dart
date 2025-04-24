@@ -123,7 +123,7 @@ class RouletteService {
   }
 
   Future<String> _waitIframeSrc(WebviewController c,
-      {Duration timeout = const Duration(seconds: 10)}) async {
+      {Duration timeout = const Duration(seconds: 15)}) async {
     final deadline = DateTime.now().add(timeout);
 
     while (DateTime.now().isBefore(deadline)) {
@@ -171,9 +171,12 @@ class RouletteService {
       await controller.loadUrl(gamePageUrl);
 
       // Ждем загрузки страницы и появления iframe
+      // ⏱ 1. ждём NavigationCompleted, но не дольше 10 с
       await controller.loadingState
-          .firstWhere((s) => s == LoadingState.navigationCompleted);
+          .firstWhere((s) => s == LoadingState.navigationCompleted)
+          .timeout(const Duration(seconds: 15));
 
+      // ⏱ 2. ждём появления iframe.src, но не дольше 10 с
       final iframeSrc = await _waitIframeSrc(controller);
       Logger.debug('Получен iframe src: $iframeSrc');
 

@@ -12,6 +12,7 @@ class RouletteCard extends StatelessWidget {
   final Function(WebSocketParams) onConnect;
   final List<Signal> signals;
   final bool isAnalyzing;
+  final List<int> recentNumbers;
 
   const RouletteCard({
     Key? key,
@@ -20,7 +21,14 @@ class RouletteCard extends StatelessWidget {
     required this.onConnect,
     this.signals = const [],
     this.isAnalyzing = false,
+    this.recentNumbers = const [],
   }) : super(key: key);
+
+  Color _chipColor(int n) => n == 0
+      ? Colors.green
+      : n <= 18
+          ? Colors.red
+          : Colors.black;
 
   Future<void> _launchGame() async {
     final gamePageUrl = 'https://gizbo.casino${game.playUrl}';
@@ -91,10 +99,36 @@ class RouletteCard extends StatelessWidget {
                         signal.message,
                         style: const TextStyle(
                           color: Colors.red,
-                          fontSize: 12,
+                          fontSize: 14,
                         ),
                       ),
                     )),
+              ],
+              if (recentNumbers.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: recentNumbers.take(9).map((n) {
+                    final bg = _chipColor(n);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: bg,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '$n',
+                          style: const TextStyle(
+                              fontSize: 10, color: Colors.white),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ],
             ],
           ),

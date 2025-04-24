@@ -29,12 +29,11 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_isInitialized) {
-      _initWebView();
-    }
   }
 
   Future<void> _initWebView() async {
+    if (!mounted) return;
+
     try {
       await _controller.initialize();
       await _controller.setBackgroundColor(Colors.white);
@@ -48,6 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Слушаем загрузку страницы
       _controller.loadingState.listen((state) {
+        if (!mounted) return;
         setState(() {
           _isLoading = state == LoadingState.loading;
         });
@@ -57,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       });
 
+      if (!mounted) return;
       setState(() => _isInitialized = true);
       Logger.info('WebView инициализирован');
     } catch (e) {

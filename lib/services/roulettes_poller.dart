@@ -146,6 +146,8 @@ class RoulettesPoller {
             Logger.info(
                 'Обнаружен сигнал для ${game.title}: ${signals.first.message}');
             onSignalDetected(game.title, results.numbers);
+          } else if (signals.isEmpty && _isRunning) {
+            onSignalDetected(game.title, results.numbers);
           }
         } catch (e) {
           Logger.error('Ошибка анализа ${game.title}', e);
