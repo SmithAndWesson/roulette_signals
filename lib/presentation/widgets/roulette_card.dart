@@ -65,72 +65,92 @@ class RouletteCard extends StatelessWidget {
           await _launchGame();
           await _connectToGame();
         },
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                game.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                game.provider,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              if (isAnalyzing) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Анализ',
-                  style: TextStyle(
-                    color: Colors.green,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+        child: AspectRatio(
+          aspectRatio: 3 / 2,
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    game.title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ],
-              if (signals.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                ...signals.map((signal) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        signal.message,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 14,
-                        ),
-                      ),
-                    )),
-              ],
-              if (recentNumbers.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: recentNumbers.take(9).map((n) {
-                    final bg = _chipColor(n);
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: bg,
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          '$n',
-                          style: const TextStyle(
-                              fontSize: 10, color: Colors.white),
-                        ),
-                      ),
-                    );
-                  }).toList(),
+                const SizedBox(height: 4),
+                Text(
+                  game.provider,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
+                if (isAnalyzing) ...[
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Анализ',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+                if (signals.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: signals
+                            .map((signal) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: Text(
+                                    signal.message,
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                ],
+                if (recentNumbers.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 20,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: recentNumbers.length,
+                      itemBuilder: (context, index) {
+                        final n = recentNumbers[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          child: CircleAvatar(
+                            backgroundColor: _chipColor(n),
+                            radius: 8,
+                            child: Text(
+                              n.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

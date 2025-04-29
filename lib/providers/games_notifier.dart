@@ -3,8 +3,10 @@ import 'package:roulette_signals/models/roulette_game.dart';
 
 class GamesNotifier extends ChangeNotifier {
   final List<RouletteGame> _games = [];
+  String _selectedProvider = 'All';
 
   List<RouletteGame> get games => List.unmodifiable(_games);
+  String get selectedProvider => _selectedProvider;
 
   void setGames(List<RouletteGame> games) {
     _games.clear();
@@ -22,6 +24,11 @@ class GamesNotifier extends ChangeNotifier {
     } catch (e) {
       // Игра не найдена, игнорируем
     }
+  }
+
+  void forceSelect(String provider) {
+    _selectedProvider = provider;
+    notifyListeners();
   }
 
   /// Снять флаг анализа у всех игр и уведомить слушателей.

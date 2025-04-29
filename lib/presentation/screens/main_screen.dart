@@ -54,6 +54,11 @@ class _MainScreenState extends State<MainScreen> {
       onAnalysisStop: _onAnalysisStop,
     );
     _loadGames();
+
+    // Автоматически выбираем провайдера evolution
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<GamesNotifier>().forceSelect('evolution');
+    });
   }
 
   void _onAnalysisStart(String gameId) {
@@ -229,7 +234,8 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     final filteredGames = _games
         .where((game) =>
-            _selectedProvider == 'All' || game.provider == _selectedProvider)
+            context.read<GamesNotifier>().selectedProvider == 'All' ||
+            game.provider == context.read<GamesNotifier>().selectedProvider)
         .toList();
 
     // Создаем Map с количеством игр для каждого провайдера
@@ -336,25 +342,26 @@ class _MainScreenState extends State<MainScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : Consumer<GamesNotifier>(
                       builder: (context, gamesNotifier, child) {
-                        return GridView.count(
-                          crossAxisCount: 5,
-                          childAspectRatio: 1.0,
-                          mainAxisSpacing: 8.0,
-                          crossAxisSpacing: 8.0,
-                          padding: const EdgeInsets.all(16.0),
-                          children: filteredGames
-                              .map((game) => RouletteCard(
-                                    game: game,
-                                    evoSessionId:
-                                        widget.authResponse.evoSessionId,
-                                    onConnect: (params) => _fetchRecentResults(
-                                        game.id.toString(), params),
-                                    signals: _gameSignals[game.id] ?? [],
-                                    isAnalyzing: game.isAnalyzing,
-                                    recentNumbers:
-                                        _recentNumbers[game.id] ?? const [],
-                                  ))
-                              .toList(),
+                        return GridView.builder(
+                          padding: const EdgeInsets.all(8),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            childAspectRatio: 3 / 2,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
+                          ),
+                          itemCount: filteredGames.length,
+                          itemBuilder: (_, i) => RouletteCard(
+                            game: filteredGames[i],
+                            evoSessionId: widget.authResponse.evoSessionId,
+                            onConnect: (params) => _fetchRecentResults(
+                                filteredGames[i].id.toString(), params),
+                            signals: _gameSignals[filteredGames[i].id] ?? [],
+                            isAnalyzing: filteredGames[i].isAnalyzing,
+                            recentNumbers:
+                                _recentNumbers[filteredGames[i].id] ?? const [],
+                          ),
                         );
                       },
                     ),

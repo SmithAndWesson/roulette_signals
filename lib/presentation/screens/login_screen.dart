@@ -1,20 +1,26 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:roulette_signals/models/game_models.dart';
+import 'package:roulette_signals/webview/webview_controller.dart';
+import 'package:roulette_signals/webview/webview_factory.dart';
 import 'package:roulette_signals/utils/logger.dart';
-import 'package:webview_windows/webview_windows.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(AuthResponse) onLoginSuccess;
 
-  const LoginScreen({Key? key, required this.onLoginSuccess}) : super(key: key);
+  const LoginScreen({
+    Key? key,
+    required this.onLoginSuccess,
+  }) : super(key: key);
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _controller = WebviewController();
+  late final AppWebViewController? _controller; // null on Android
   bool _isInitialized = false;
   String? _jwtToken;
   String? _evoSessionId;
@@ -23,7 +29,12 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _initWebView();
+    if (Platform.isWindows) {
+      _controller = createWebViewController();
+      _initWebView();
+    } else {
+      _controller = null; // Android → no headless
+    }
   }
 
   @override
@@ -35,21 +46,14 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     try {
-      await _controller.initialize();
-      await _controller.setBackgroundColor(Colors.white);
-      await _controller.loadUrl('https://gizbo.casino');
-
-      // Слушаем изменения URL
-      _controller.url.listen((url) {
-        Logger.debug('URL изменен: $url');
-        _checkAuthStatus();
-      });
+      await _controller?.initialize();
+      await _controller?.loadUrl('https://gizbo.casino');
 
       // Слушаем загрузку страницы
-      _controller.loadingState.listen((state) {
+      _controller?.loadingState.listen((state) {
         if (!mounted) return;
         setState(() {
-          _isLoading = state == LoadingState.loading;
+          _isLoading = state == LoadingState.navigationStarted;
         });
         if (state == LoadingState.navigationCompleted) {
           Logger.info('Страница загружена');
@@ -68,22 +72,23 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _checkAuthStatus() async {
     try {
       // Получаем все куки
-      final cookieResult = await _controller.executeScript(
+      final cookieResult = await _controller?.executeScript(
         'document.cookie',
       );
 
       // Получаем JWT из localStorage
-      final jwtResult = await _controller.executeScript(
+      final jwtResult = await _controller?.executeScript(
         'localStorage.getItem("JWT_AUTH")',
       );
 
       // Сохраняем все cookies в SharedPreferences
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('all_cookies', _cleanResult(cookieResult));
+      await prefs.setString('all_cookies', _cleanResult(cookieResult ?? ''));
 
       // Извлекаем EVOSESSIONID из куков
-      final evoSessionId = _extractEvoSessionId(_cleanResult(cookieResult));
-      final jwtToken = _cleanResult(jwtResult);
+      final evoSessionId =
+          _extractEvoSessionId(_cleanResult(cookieResult ?? ''));
+      final jwtToken = _cleanResult(jwtResult ?? '');
 
       if (evoSessionId != null && jwtToken.isNotEmpty) {
         setState(() {
@@ -96,6 +101,28 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       Logger.error('Ошибка проверки авторизации', e);
+    }
+  }
+
+  Future<void> _checkAuthStatusAndroid(InAppWebViewController ctrl) async {
+    final cookies = await CookieManager.instance()
+        .getCookies(url: WebUri('https://gizbo.casino'));
+    final allCookies = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+    final jwt = await ctrl.evaluateJavascript(
+        source: 'localStorage.getItem("JWT_AUTH")');
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('all_cookies', allCookies);
+
+    final evo = _extractEvoSessionId(allCookies);
+    final jwtToken = _cleanResult(jwt.toString());
+
+    if (evo != null && jwtToken.isNotEmpty) {
+      setState(() {
+        _evoSessionId = evo;
+        _jwtToken = jwtToken;
+      });
+      Logger.info('Токены получены (Android виджет)');
     }
   }
 
@@ -131,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     Logger.info('Очистка ресурсов WebView');
-    _controller.dispose();
+    _controller?.dispose(); // safe
     super.dispose();
   }
 
@@ -163,7 +190,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               Expanded(
-                child: Webview(_controller),
+                child: Platform.isAndroid
+                    ? InAppWebView(
+                        initialUrlRequest: URLRequest(
+                            url: WebUri('https://gizbo.casino/login')),
+                        onLoadStart: (_, __) =>
+                            setState(() => _isLoading = true),
+                        onLoadStop: (controller, __) async {
+                          setState(() => _isLoading = false);
+                          await _checkAuthStatusAndroid(controller);
+                        },
+                      )
+                    : const Center(child: CircularProgressIndicator()),
               ),
               if (_isLoading)
                 const Padding(
