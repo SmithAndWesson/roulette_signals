@@ -2,8 +2,9 @@ import 'package:http/http.dart' as http;
 import 'package:roulette_signals/models/roulette_game.dart';
 import 'package:roulette_signals/models/websocket_params.dart';
 import 'package:roulette_signals/utils/logger.dart';
+import 'package:roulette_signals/webview/webview_controller.dart';
+import 'package:roulette_signals/webview/webview_factory.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:webview_windows/webview_windows.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -122,7 +123,7 @@ class RouletteService {
     return result;
   }
 
-  Future<String> _waitIframeSrc(WebviewController c,
+  Future<String> _waitIframeSrc(AppWebViewController c,
       {Duration timeout = const Duration(seconds: 15)}) async {
     final deadline = DateTime.now().add(timeout);
 
@@ -135,15 +136,11 @@ class RouletteService {
     throw Exception('iframe не найден (таймаут ${timeout.inSeconds} с)');
   }
 
-  Future<String> _waitEvoSessionId(WebviewController c,
+  Future<String> _waitEvoSessionId(AppWebViewController c,
       {Duration maxWait = const Duration(seconds: 10)}) async {
     final deadline = DateTime.now().add(maxWait);
     while (DateTime.now().isBefore(deadline)) {
-      // 5 с пауза только ОДИН раз за всё время жизни приложения
-      // if (!_firstDelayDone) {
       await Future.delayed(const Duration(seconds: 5));
-      // _firstDelayDone = true;
-      // }
       final id = await c
           .executeScript("localStorage.getItem('evo.video.sessionId') ?? ''");
       if (id.isNotEmpty) return id;
@@ -153,7 +150,7 @@ class RouletteService {
   }
 
   Future<WebSocketParams> extractWebSocketParams(RouletteGame game) async {
-    final controller = WebviewController();
+    final controller = createWebViewController();
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedCookies = prefs.getString('all_cookies') ?? '';
@@ -171,7 +168,6 @@ class RouletteService {
       await controller.loadUrl(gamePageUrl);
 
       // Ждем загрузки страницы и появления iframe
-      // ⏱ 1. ждём NavigationCompleted, но не дольше 10 с
       await controller.loadingState
           .firstWhere((s) => s == LoadingState.navigationCompleted)
           .timeout(const Duration(seconds: 15));
