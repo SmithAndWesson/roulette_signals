@@ -1,8 +1,10 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_windows/webview_windows.dart' as windows;
 import 'package:roulette_signals/models/game_models.dart';
 import 'package:roulette_signals/webview/webview_controller.dart';
+import 'package:roulette_signals/webview/webview_controller_windows.dart';
 import 'package:roulette_signals/webview/webview_factory.dart';
 import 'package:roulette_signals/utils/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,6 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
       await _controller?.initialize();
       await _controller?.loadUrl('https://gizbo.casino');
 
+      if (Platform.isWindows) _pollTokensWindows();
+
       // Слушаем загрузку страницы
       _controller?.loadingState.listen((state) {
         if (!mounted) return;
@@ -66,6 +70,30 @@ class _LoginScreenState extends State<LoginScreen> {
       Logger.info('WebView инициализирован');
     } catch (e) {
       Logger.error('Ошибка инициализации WebView', e);
+    }
+  }
+
+  Future<void> _pollTokensWindows() async {
+    while (mounted && _jwtToken == null) {
+      final cookies =
+          await _controller!.executeScript('document.cookie') as String?;
+      final jwt = await _controller!
+          .executeScript('localStorage.getItem("JWT_AUTH")') as String?;
+
+      final evo = _extractEvoSessionId(_cleanResult(cookies ?? ''));
+      final jwtToken = _cleanResult(jwt ?? '');
+
+      if (evo != null && jwtToken.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('all_cookies', cookies ?? '');
+        setState(() {
+          _evoSessionId = evo;
+          _jwtToken = jwtToken;
+        });
+        Logger.info('✅ Токены получены (Windows опрос)');
+        break;
+      }
+      await Future.delayed(const Duration(seconds: 1));
     }
   }
 
@@ -196,12 +224,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             url: WebUri('https://gizbo.casino/login')),
                         onLoadStart: (_, __) =>
                             setState(() => _isLoading = true),
-                        onLoadStop: (controller, __) async {
+                        onLoadStop: (ctrl, __) async {
                           setState(() => _isLoading = false);
-                          await _checkAuthStatusAndroid(controller);
+                          await _checkAuthStatusAndroid(ctrl);
                         },
                       )
-                    : const Center(child: CircularProgressIndicator()),
+                    : _isInitialized
+                        ? windows.Webview(
+                            (_controller as WebviewControllerWindows).inner,
+                          )
+                        : const Center(child: CircularProgressIndicator()),
               ),
               if (_isLoading)
                 const Padding(
