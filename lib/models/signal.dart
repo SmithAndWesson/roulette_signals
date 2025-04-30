@@ -1,6 +1,6 @@
 enum SignalType {
-  missingDozen,
-  missingRow,
+  patternDozen9,
+  patternRow9,
 }
 
 class Signal {

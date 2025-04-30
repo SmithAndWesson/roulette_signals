@@ -35,7 +35,7 @@ class SignalEngine {
               .toList();
 
           onSignalDetected(Signal(
-            type: SignalType.missingDozen,
+            type: SignalType.patternDozen9,
             message:
                 'Не выпадала $dozen-я дюжина в последних $_signalThreshold числах',
             lastNumbers: lastNumbers,
@@ -61,7 +61,7 @@ class SignalEngine {
               .toList();
 
           onSignalDetected(Signal(
-            type: SignalType.missingRow,
+            type: SignalType.patternRow9,
             message:
                 'Не выпадала $column-я строка в последних $_signalThreshold числах',
             lastNumbers: lastNumbers,

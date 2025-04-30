@@ -2,67 +2,82 @@ import 'package:roulette_signals/models/signal.dart';
 import 'package:roulette_signals/utils/logger.dart';
 
 class NumberAnalyzer {
-  static const int _numbersToAnalyze = 9;
+  static const int _numbersToAnalyze = 300; //9
 
+//detectPattern9
   List<Signal> detectMissingDozenOrRow(List<int> numbers) {
-    if (numbers.length < _numbersToAnalyze) {
-      Logger.warning('Недостаточно чисел для анализа: ${numbers.length}');
-      return [];
+    if (numbers.length < _numbersToAnalyze) return [];
+
+    final slice = numbers.take(_numbersToAnalyze).toList();
+    final result = <Signal>[];
+
+    // проверка дюжин
+    for (var dz = 0; dz < 3; dz++) {
+      final uniq = <int>{};
+      var lastOur = false;
+      for (final n in slice) {
+        final isOur = _dozen(n) == dz;
+        if (isOur) {
+          if (lastOur) {
+            uniq.clear();
+            lastOur = false;
+            continue;
+          } // два подряд  → не подходит
+          uniq.add(n);
+        }
+        lastOur = isOur;
+        if (uniq.length >= 9) {
+          result.add(_buildDozenSignal(dz, uniq, slice));
+          break; // если нужен только один сигнал за проход
+        }
+      }
     }
 
-    final lastNumbers = numbers.take(_numbersToAnalyze).toList();
-    final signals = <Signal>[];
-
-    // Проверяем дюжины
-    final dozens = _checkDozens(lastNumbers);
-    if (dozens.isNotEmpty) {
-      signals.add(Signal(
-        type: SignalType.missingDozen,
-        message:
-            'Не выпадала ${dozens.join(", ")} дюжина в последних $_numbersToAnalyze числах',
-        lastNumbers: lastNumbers,
-        timestamp: DateTime.now(),
-      ));
+    // проверка строк
+    for (var col = 0; col < 3; col++) {
+      final uniq = <int>{};
+      var lastOur = false;
+      for (final n in slice) {
+        final isOur = _column(n) == col;
+        if (isOur) {
+          if (lastOur) {
+            uniq.clear();
+            lastOur = false;
+            continue;
+          }
+          uniq.add(n);
+        }
+        lastOur = isOur;
+      }
+      if (uniq.length >= 9) {
+        result.add(_buildColumnSignal(col, uniq, slice));
+        break;
+      }
     }
-
-    // Проверяем строки
-    final rows = _checkRows(lastNumbers);
-    if (rows.isNotEmpty) {
-      signals.add(Signal(
-        type: SignalType.missingRow,
-        message:
-            'Не выпадала ${rows.join(", ")} строка в последних $_numbersToAnalyze числах',
-        lastNumbers: lastNumbers,
-        timestamp: DateTime.now(),
-      ));
-    }
-
-    return signals;
+    return result;
   }
 
-  List<String> _checkDozens(List<int> numbers) {
-    final missingDozens = <String>[];
-    final dozen1 = numbers.where((n) => n >= 1 && n <= 12).isEmpty;
-    final dozen2 = numbers.where((n) => n >= 13 && n <= 24).isEmpty;
-    final dozen3 = numbers.where((n) => n >= 25 && n <= 36).isEmpty;
+  int _dozen(int n) => (n - 1) ~/ 12; // 0,1,2
+  int _column(int n) => (n - 1) % 3; // 0,1,2
 
-    if (dozen1) missingDozens.add('1-я');
-    if (dozen2) missingDozens.add('2-я');
-    if (dozen3) missingDozens.add('3-я');
-
-    return missingDozens;
+  Signal _buildDozenSignal(int dozen, Set<int> uniq, List<int> lastNums) {
+    final dozenLabel = '${dozen + 1}-я дюжина'; // 1-я, 2-я, 3-я
+    return Signal(
+      type: SignalType.patternDozen9,
+      message:
+          'Шаблон 9 уникальных ($dozenLabel): ${uniq.join(", ")}', // <- текст
+      lastNumbers: lastNums,
+      timestamp: DateTime.now(),
+    );
   }
 
-  List<String> _checkRows(List<int> numbers) {
-    final missingRows = <String>[];
-    final row1 = numbers.where((n) => n % 3 == 1).isEmpty;
-    final row2 = numbers.where((n) => n % 3 == 2).isEmpty;
-    final row3 = numbers.where((n) => n % 3 == 0).isEmpty;
-
-    if (row1) missingRows.add('1-я');
-    if (row2) missingRows.add('2-я');
-    if (row3) missingRows.add('3-я');
-
-    return missingRows;
+  Signal _buildColumnSignal(int col, Set<int> uniq, List<int> lastNums) {
+    final colLabel = '${col + 1}-й ряд'; // 1-й, 2-й, 3-й
+    return Signal(
+      type: SignalType.patternRow9,
+      message: 'Шаблон 9 уникальных ($colLabel): ${uniq.join(", ")}',
+      lastNumbers: lastNums,
+      timestamp: DateTime.now(),
+    );
   }
 }

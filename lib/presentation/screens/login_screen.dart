@@ -220,8 +220,8 @@ class _LoginScreenState extends State<LoginScreen> {
               Expanded(
                 child: Platform.isAndroid
                     ? InAppWebView(
-                        initialUrlRequest: URLRequest(
-                            url: WebUri('https://gizbo.casino/login')),
+                        initialUrlRequest:
+                            URLRequest(url: WebUri('https://gizbo.casino')),
                         onLoadStart: (_, __) =>
                             setState(() => _isLoading = true),
                         onLoadStop: (ctrl, __) async {
