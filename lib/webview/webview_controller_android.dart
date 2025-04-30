@@ -10,11 +10,13 @@ import 'app_overlay.dart';
 /// Работает через невидимый OverlayEntry.
 class WebviewControllerAndroid implements AppWebViewController {
   late final WebViewController _ctrl;
+  late final WebViewCookieManager _cookieMgr;
   final _loading = StreamController<LoadingState>();
   OverlayEntry? _entry;
 
   @override
   Future<void> initialize() async {
+    _cookieMgr = WebViewCookieManager();
     _ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))

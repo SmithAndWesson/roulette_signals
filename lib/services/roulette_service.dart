@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io' show Platform;
+import 'package:webview_flutter/webview_flutter.dart';
 
 class RouletteService {
   static const String _baseUrl = 'https://gizbo.casino/batch?cms[]=';
@@ -130,7 +132,8 @@ class RouletteService {
     while (DateTime.now().isBefore(deadline)) {
       final src =
           await c.executeScript("document.querySelector('iframe')?.src ?? ''");
-      if (src.isNotEmpty) return src;
+      if (src.isNotEmpty && src.contains('http'))
+        return src.replaceAll('"', '').trim();
       await Future.delayed(const Duration(milliseconds: 250));
     }
     throw Exception('iframe не найден (таймаут ${timeout.inSeconds} с)');
@@ -154,13 +157,32 @@ class RouletteService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedCookies = prefs.getString('all_cookies') ?? '';
-
       await controller.initialize();
-
-      // Устанавливаем сохранённые cookies для gizbo.casino
-      await controller.executeScript('''
-      document.cookie = "$savedCookies";
-    ''');
+      if (Platform.isAndroid) {
+        final cm = WebViewCookieManager();
+        for (final e in savedCookies.split(';')) {
+          final kv = e.trim().split('=');
+          if (kv.length != 2) continue;
+          final name = kv[0], value = kv[1];
+          await cm.setCookie(WebViewCookie(
+            name: name,
+            value: value,
+            domain: '.gizbo.casino',
+            path: '/',
+          ));
+          await cm.setCookie(WebViewCookie(
+            name: name,
+            value: value,
+            domain: '.evo-games.com',
+            path: '/',
+          ));
+        }
+      } else {
+        // Устанавливаем сохранённые cookies для gizbo.casino
+        await controller.executeScript('''
+        document.cookie = "$savedCookies";
+      ''');
+      }
 
       // Загружаем страницу игры
       final gamePageUrl = 'https://gizbo.casino${game.playUrl}';
@@ -173,8 +195,13 @@ class RouletteService {
           .timeout(const Duration(seconds: 60));
 
       // ⏱ 2. ждём появления iframe.src, но не дольше 10 с
-      final iframeSrc = await _waitIframeSrc(controller);
+      var iframeSrc = await _waitIframeSrc(controller);
       Logger.debug('Получен iframe src: $iframeSrc');
+
+      iframeSrc = iframeSrc.trim(); // убираем \n и пробелы
+      if (!iframeSrc.startsWith('http')) {
+        throw FormatException('Некорректный iframe src: $iframeSrc');
+      }
 
       // Парсим iframeSrc → options → gameUrl
       final iframeUri = Uri.parse(iframeSrc);
