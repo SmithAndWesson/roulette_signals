@@ -7,10 +7,14 @@ import 'package:roulette_signals/providers/games_notifier.dart';
 import 'package:roulette_signals/utils/expiry_watcher.dart';
 import 'package:roulette_signals/utils/logger.dart';
 import 'package:roulette_signals/webview/app_overlay.dart';
+import 'dart:io' show Platform;
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
   runApp(const MyApp());
+
   // Запускаем проверку после инициализации приложения
   WidgetsBinding.instance.addPostFrameCallback((_) {
     ExpiryWatcher.i.start();

@@ -1,7 +1,10 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:io' show Platform; // ← добавили
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart'; // ← добавили
 import 'package:shared_preferences/shared_preferences.dart';
 import 'webview_controller.dart';
 import 'app_overlay.dart';
@@ -27,6 +30,23 @@ class WebviewControllerAndroid implements AppWebViewController {
         ),
       );
 
+// 1. Собираем "базовые" параметры из platform-сборки
+    final baseParams = PlatformWebViewWidgetCreationParams(
+      controller: _ctrl.platform, // берём внутренний контроллер
+      layoutDirection: TextDirection.ltr, // или ваш вариант
+      gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+    );
+
+// 2. Если мы на Android — создаём Android-специфичный params с hybrid-composition
+    final effectiveParams = (WebViewPlatform.instance is AndroidWebViewPlatform)
+        ? AndroidWebViewWidgetCreationParams(
+            controller: baseParams.controller,
+            layoutDirection: baseParams.layoutDirection,
+            gestureRecognizers: baseParams.gestureRecognizers,
+            displayWithHybridComposition: true, // <— включаем hybrid
+          )
+        : baseParams;
+
     // Вставляем невидимый WebView в Overlay верхнего Navigator
     _entry = OverlayEntry(
       builder: (_) => Offstage(
@@ -34,7 +54,9 @@ class WebviewControllerAndroid implements AppWebViewController {
         child: SizedBox(
           width: 0,
           height: 0,
-          child: WebViewWidget(controller: _ctrl),
+          child: WebViewWidget.fromPlatformCreationParams(
+            params: effectiveParams,
+          ),
         ),
       ),
     );

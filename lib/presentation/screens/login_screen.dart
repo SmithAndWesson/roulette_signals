@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_windows/webview_windows.dart' as windows;
 import 'package:roulette_signals/models/game_models.dart';
@@ -8,6 +9,8 @@ import 'package:roulette_signals/webview/webview_controller_windows.dart';
 import 'package:roulette_signals/webview/webview_factory.dart';
 import 'package:roulette_signals/utils/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/gestures.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(AuthResponse) onLoginSuccess;
@@ -242,7 +245,15 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               Expanded(
                 child: Platform.isAndroid
-                    ? WebViewWidget(controller: _androidCtrl!)
+                    ? WebViewWidget.fromPlatformCreationParams(
+                        params: AndroidWebViewWidgetCreationParams(
+                          controller: _androidCtrl!.platform,
+                          layoutDirection: TextDirection.ltr,
+                          gestureRecognizers: const <Factory<
+                              OneSequenceGestureRecognizer>>{},
+                          displayWithHybridComposition: true,
+                        ),
+                      )
                     : _isInitialized
                         ? windows.Webview(
                             (_controller as WebviewControllerWindows).inner,
