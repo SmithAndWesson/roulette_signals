@@ -1,6 +1,6 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_windows/webview_windows.dart' as windows;
 import 'package:roulette_signals/models/game_models.dart';
 import 'package:roulette_signals/webview/webview_controller.dart';
@@ -23,6 +23,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   late final AppWebViewController? _controller; // null on Android
+  late final WebViewController? _androidCtrl; // null on Windows
   bool _isInitialized = false;
   String? _jwtToken;
   String? _evoSessionId;
@@ -31,11 +32,24 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isWindows) {
+    if (Platform.isAndroid) {
+      _androidCtrl = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(const Color(0x00000000))
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageStarted: (_) => setState(() => _isLoading = true),
+            onPageFinished: (_) async {
+              setState(() => _isLoading = false);
+              _waitForTokens();
+            },
+          ),
+        );
+      _androidCtrl!.loadRequest(Uri.parse('https://gizbo.casino'));
+    } else {
+      _androidCtrl = null;
       _controller = createWebViewController();
       _initWebView();
-    } else {
-      _controller = null; // Android → no headless
     }
   }
 
@@ -132,26 +146,35 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _checkAuthStatusAndroid(InAppWebViewController ctrl) async {
-    final cookies = await CookieManager.instance()
-        .getCookies(url: WebUri('https://gizbo.casino'));
-    final allCookies = cookies.map((c) => '${c.name}=${c.value}').join('; ');
-    final jwt = await ctrl.evaluateJavascript(
-        source: 'localStorage.getItem("JWT_AUTH")');
+  Future<void> _waitForTokens() async {
+    const timeout = Duration(seconds: 15);
+    const interval = Duration(milliseconds: 500);
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('all_cookies', allCookies);
+    final deadline = DateTime.now().add(timeout);
 
-    final evo = _extractEvoSessionId(allCookies);
-    final jwtToken = _cleanResult(jwt.toString());
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      final cookiesRaw =
+          await _androidCtrl!.runJavaScriptReturningResult('document.cookie');
+      final jwtRaw = await _androidCtrl!
+          .runJavaScriptReturningResult('localStorage.getItem("JWT_AUTH")');
 
-    if (evo != null && jwtToken.isNotEmpty) {
-      setState(() {
-        _evoSessionId = evo;
-        _jwtToken = jwtToken;
-      });
-      Logger.info('Токены получены (Android виджет)');
+      final cookies = _cleanResult(cookiesRaw.toString());
+      final jwt = _cleanResult(jwtRaw.toString());
+
+      final evo = _extractEvoSessionId(cookies);
+      if (evo != null && jwt.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('all_cookies', cookies);
+        setState(() {
+          _evoSessionId = evo;
+          _jwtToken = jwt;
+        });
+        Logger.info('Токены получены (Android polling)');
+        return;
+      }
+      await Future.delayed(interval);
     }
+    Logger.warning('JWT/EVOSESSIONID не появились за $timeout');
   }
 
   String? _extractEvoSessionId(String cookies) {
@@ -219,16 +242,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               Expanded(
                 child: Platform.isAndroid
-                    ? InAppWebView(
-                        initialUrlRequest:
-                            URLRequest(url: WebUri('https://gizbo.casino')),
-                        onLoadStart: (_, __) =>
-                            setState(() => _isLoading = true),
-                        onLoadStop: (ctrl, __) async {
-                          setState(() => _isLoading = false);
-                          await _checkAuthStatusAndroid(ctrl);
-                        },
-                      )
+                    ? WebViewWidget(controller: _androidCtrl!)
                     : _isInitialized
                         ? windows.Webview(
                             (_controller as WebviewControllerWindows).inner,
@@ -248,21 +262,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
                     ),
-                    child: const Text(
-                      'Продолжить',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: const Text('Продолжить'),
                   ),
                 ),
             ],

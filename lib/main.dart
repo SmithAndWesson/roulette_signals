@@ -6,6 +6,7 @@ import 'package:roulette_signals/presentation/screens/main_screen.dart';
 import 'package:roulette_signals/providers/games_notifier.dart';
 import 'package:roulette_signals/utils/expiry_watcher.dart';
 import 'package:roulette_signals/utils/logger.dart';
+import 'package:roulette_signals/webview/app_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,7 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Roulette Signals',
         debugShowCheckedModeBanner: false,
+        navigatorKey: AppOverlay.navigatorKey,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: Colors.green,

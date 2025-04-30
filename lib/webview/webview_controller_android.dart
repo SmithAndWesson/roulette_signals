@@ -1,53 +1,60 @@
 import 'dart:async';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'webview_controller.dart';
+import 'app_overlay.dart';
 
-/// Реализация WebView для Android
+/// «Headless» WebView на базе webview_flutter.
+/// Работает через невидимый OverlayEntry.
 class WebviewControllerAndroid implements AppWebViewController {
-  late HeadlessInAppWebView _headless;
-  late InAppWebViewController _controller;
+  late final WebViewController _ctrl;
   final _loading = StreamController<LoadingState>();
+  OverlayEntry? _entry;
 
   @override
   Future<void> initialize() async {
-    _headless = HeadlessInAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri('about:blank')),
-      onWebViewCreated: (c) => _controller = c,
-      onLoadStart: (_, __) => _loading.add(LoadingState.navigationStarted),
-      onLoadStop: (_, __) async {
-        _loading.add(LoadingState.navigationCompleted);
-        // Сохраняем cookies после загрузки страницы
-        final currentUrl = await _controller.getUrl();
-        if (currentUrl != null) {
-          final cookies = await CookieManager.instance().getCookies(
-            url: currentUrl,
-          );
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(
-            'all_cookies',
-            cookies.map((c) => '${c.name}=${c.value}').join('; '),
-          );
-        }
-      },
+    _ctrl = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0x00000000))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) => _loading.add(LoadingState.navigationStarted),
+          onPageFinished: (_) => _loading.add(LoadingState.navigationCompleted),
+        ),
+      );
+
+    // Вставляем невидимый WebView в Overlay верхнего Navigator
+    _entry = OverlayEntry(
+      builder: (_) => Offstage(
+        offstage: true,
+        child: SizedBox(
+          width: 0,
+          height: 0,
+          child: WebViewWidget(controller: _ctrl),
+        ),
+      ),
     );
-    await _headless.run();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppOverlay.navigatorKey.currentState!.overlay!.insert(_entry!);
+    });
   }
 
   @override
-  Future<void> loadUrl(String url) =>
-      _controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+  Future<void> loadUrl(String url) => _ctrl.loadRequest(Uri.parse(url));
 
   @override
   Future<String> executeScript(String js) async =>
-      (await _controller.evaluateJavascript(source: js)).toString();
+      (await _ctrl.runJavaScriptReturningResult(js)).toString();
 
   @override
   Stream<LoadingState> get loadingState => _loading.stream;
 
   @override
   Future<void> dispose() async {
-    await _headless.dispose();
+    await _ctrl.runJavaScript(''); // гарантируем остановку
+    _entry?.remove();
     await _loading.close();
   }
 }
