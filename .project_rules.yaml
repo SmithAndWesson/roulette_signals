@@ -1,0 +1,116 @@
+# Спецификация рефакторинга Flutter-проекта «Roulette Signals»
+
+**Репозиторий:** https://github.com/SmithAndWesson/roulette_signals
+
+Документ содержит полное описание анализа существующего проекта, новую архитектуру и пошаговые инструкции для Cursor.ai по созданию нового Android-only приложения с сохранением ключевой логики.
+
+---
+
+## 1. Аудит текущего проекта
+
+### 1.1. Классы и модули, которые сохраняем
+- **RouletteService**: содержит логику получения списка игр, фильтрацию региональных ограничений и ключевой метод `extractWebSocketParams` для извлечения параметров WebSocket (iframe.src → Base64 decode → парсинг params → получение EVOSESSIONID → формирование WebSocketParams).
+- **WebSocketService**: подключается к серверу через IOWebSocketChannel, ждёт сообщения `roulette.recentResults`, закрывает соединение и возвращает модель RecentResults.
+- **NumberAnalyzer** (или аналогичные классы): алгоритмы анализа последовательности номеров для генерации сигналов.
+
+### 1.2. Классы и части, которые перерабатываем и разделяем
+- **SessionManager**: централизованное хранение JWT и cookie, методы `setSession`, `hasValidSession`, `validateSession`, `clearSession`, интеграция с SharedPreferences.
+- **WebViewService**: singleton, инициализация Android WebViewController (webview_flutter), методы `attachController`, `loadUrl`, `waitForLoad`, `evalJavaScript`, `setCookiesFromString`, хранение WebView в Offstage, фоновые загрузки.
+- **Screens (UI)**:
+  - **LoginScreen**: UI для входа через WebView, подпись на SessionManager для навигации по успешному логину.
+  - **MainScreen**: UI для отображения списка игр и сигналов, подписка на GamesNotifier/SignalsService, без бизнес-логики.
+- **SignalsService**: объединяет логику анализа номеров, хранит `isAnalyzing`, `recentNumbers`, `signalsByGame`, методы `fetchAndAnalyze(game)`, `processResults` и уведомляет UI.
+
+### 1.3. Что удаляем
+- Windows-специфичные классы и зависимости: `webview_windows`, `flutter_inappwebview`, `window_manager`, файлы `webview_controller_windows.dart`, заглушки `stubs/`
+- Дубли и неиспользуемый код (находить через IDE: файлы без импорта).
+- `RoulettesPoller` (если логику опроса вынесем в SignalsService).
+
+---
+
+## 2. Ключевая логика для переноса
+
+1. **Получение списка игр:**
+   - HTTP GET `/api/cms/v2/games/UAH`, фильтрация по collections (live_roulette) и ограничениям из `/api/v2/games/restrictions?country=UA`.
+2. **extractWebSocketParams(game):**
+   - `webViewService.loadUrl(BASE_URL + game.playUrl)`
+   - Ожидание `iframe.src` → `evalJavaScript("document.querySelector('iframe')?.src")`
+   - Base64 decode `options`, JSON parse → получить `game_url`
+   - Base64 decode `params` из game_url → Map с tableId, vtId, uaLaunchId
+   - `webViewService.loadUrl(game_url)`, ждать загрузки → `evalJavaScript("localStorage.getItem('evo.video.sessionId')")`
+   - `evalJavaScript("document.cookie")` → строка всех cookie
+   - Формирование WebSocketParams: `{tableId, vtId, uaLaunchId, evoSessionId, instance, cookieHeader}`
+3. **fetchRecentResults(params):**
+   - `IOWebSocketChannel.connect(params.webSocketUrl, headers: {Cookie: params.cookieHeader, Origin: ORIGIN})`
+   - Слушать стрим, ждать сообщение `roulette.recentResults` → RecentResults.numbers
+   - Таймаут 10s, закрыть канал, вернуть данные или null
+4. **Анализ сигналов:**
+   - Использовать NumberAnalyzer для поиска отсутствующих дюжин/рядов
+   - Сформировать список сигналов
+   - SignalsService сохраняет и нотифицирует UI
+
+---
+
+## 3. Новая структура проекта
+
+```plaintext
+lib/
+├── core/
+│   ├── di/
+│   │   └── service_locator.dart    # Регистрация SessionManager, WebViewService, RouletteService, WebSocketService, SignalsService
+│   └── constants/
+│       └── app_constants.dart     # BASE_URL, WS_ORIGIN, JWT_KEY, таймауты
+├── services/
+│   ├── session/
+│   │   └── session_manager.dart   # ChangeNotifier, jwtToken, cookies, hasValidSession(), setSession(), clearSession()
+│   ├── webview/
+│   │   └── webview_service.dart   # Инициализация и фоновые загрузки WebView, JS eval, cookie manager
+│   ├── roulette/
+│   │   └── roulette_service.dart  # fetchLiveRouletteGames(), extractWebSocketParams(game)
+│   ├── websocket/
+│   │   └── websocket_service.dart # fetchRecentResults(params)
+│   └── signals/
+│       └── signals_service.dart   # fetchAndAnalyze(game), processResults, хранение recentNumbers, signalsByGame
+├── models/
+│   ├── roulette/
+│   │   └── roulette_game.dart     # id, provider, slug, playUrl и др.
+│   └── websocket/
+│       ├── websocket_params.dart  # tableId, vtId, uaLaunchId, evoSessionId, instance, cookieHeader, webSocketUrl
+│       └── recent_results.dart    # List<int> numbers
+├── presentation/
+│   ├── screens/
+│   │   ├── login/
+│   │   │   └── login_screen.dart   # WebView UI + подпись на SessionManager для навигации
+│   │   └── main/
+│   │       └── main_screen.dart    # GridView карточек, context.watch<GamesNotifier>() + context.watch<SignalsService>()
+│   └── widgets/
+│       └── roulette_card.dart     # Презентационный компонент, вызывает signalsService.fetchAndAnalyze(game)
+└── utils/
+    ├── logger.dart
+    └── sound_player.dart
+```
+
+---
+
+## 4. Порядок действий для Cursor.ai
+
+1. **Инициализировать новый Flutter-проект** (Android-only).
+2. **Скопировать `.project_rules.yaml`** (этот документ можно игнорировать — правила уже учтены в спецификации).
+3. **Создать структуру каталогов** согласно разделу 3.
+4. **Добавить зависимости**: `webview_flutter`, `get_it`, `provider`, `http`, `web_socket_channel`, `shared_preferences`, `jwt_decoder`.
+5. **Реализовать Service Locator:** вставить код из core/di/service_locator.dart.
+6. **Написать SessionManager** (ChangeNotifier).
+7. **Написать WebViewService**, вставить методы: attachController, loadUrl, waitForLoad, evalJavaScript, setCookiesFromString.
+8. **Рефакторинг RouletteService:** перенести логику fetchLiveRouletteGames и весь метод extractWebSocketParams, заменив прямые ссылки на WebViewController вызовами WebViewService.
+9. **Перенести WebSocketService** без изменений.
+10. **Создать SignalsService** с методами fetchAndAnalyze и структурами состояний.
+11. **Разработать UI:**
+    - **LoginScreen**: подключить hidden WebView, подписаться на SessionManager.
+    - **MainScreen**: обернуть MaterialApp в MultiProvider для SessionManager, RouletteService, SignalsService (или использовать get_it напрямую), реализовать GridView карточек.
+    - **RouletteCard**: принимать props (game, isAnalyzing, recentNumbers, signals, onConnect) и отображать.
+12. **Обновить AndroidManifest.xml**: INTERNET permission, android:exported.
+13. **Тестировать**: логин → список игр → подключение к игре → анализ → сигналы.
+
+---
+
+Этот документ содержит всю информацию анализа и чёткий план, который Cursor.ai сможет использовать для автоматизированного создания проекта. Разбей каждое действие на мелкие задачи и генерируй код по шагам.
