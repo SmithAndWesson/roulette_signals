@@ -1,116 +1,212 @@
 # Спецификация рефакторинга Flutter-проекта «Roulette Signals»
-
 **Репозиторий:** https://github.com/SmithAndWesson/roulette_signals
 
-Документ содержит полное описание анализа существующего проекта, новую архитектуру и пошаговые инструкции для Cursor.ai по созданию нового Android-only приложения с сохранением ключевой логики.
+Данный документ объединяет полный аудит существующего проекта и пошаговый план для Cursor.ai. Он содержит все ключевые моменты анализа, новую архитектуру и инструкции по переносу, удалению и добавлению кода.
 
 ---
 
-## 1. Аудит текущего проекта
+## 1. Аудит и ключевые выводы
 
-### 1.1. Классы и модули, которые сохраняем
-- **RouletteService**: содержит логику получения списка игр, фильтрацию региональных ограничений и ключевой метод `extractWebSocketParams` для извлечения параметров WebSocket (iframe.src → Base64 decode → парсинг params → получение EVOSESSIONID → формирование WebSocketParams).
-- **WebSocketService**: подключается к серверу через IOWebSocketChannel, ждёт сообщения `roulette.recentResults`, закрывает соединение и возвращает модель RecentResults.
-- **NumberAnalyzer** (или аналогичные классы): алгоритмы анализа последовательности номеров для генерации сигналов.
+### 1.1. Общая проблема
+- Логика приложения (авторизация, WebView, WebSocket, анализ сигналов) смешана с UI.
+- Поддержка двух платформ (Android + Windows) усложняет код и требует удаления устаревших компонентов.
+- Отсутствие единого менеджера сессии: JWT и cookie хранятся разрозненно.
+- WebView создаётся заново при каждом запросе, тратя ресурсы и требуя ручной передачи cookie.
+- Экран LoginScreen и MainScreen перегружены бизнес-логикой.
 
-### 1.2. Классы и части, которые перерабатываем и разделяем
-- **SessionManager**: централизованное хранение JWT и cookie, методы `setSession`, `hasValidSession`, `validateSession`, `clearSession`, интеграция с SharedPreferences.
-- **WebViewService**: singleton, инициализация Android WebViewController (webview_flutter), методы `attachController`, `loadUrl`, `waitForLoad`, `evalJavaScript`, `setCookiesFromString`, хранение WebView в Offstage, фоновые загрузки.
-- **Screens (UI)**:
-  - **LoginScreen**: UI для входа через WebView, подпись на SessionManager для навигации по успешному логину.
-  - **MainScreen**: UI для отображения списка игр и сигналов, подписка на GamesNotifier/SignalsService, без бизнес-логики.
-- **SignalsService**: объединяет логику анализа номеров, хранит `isAnalyzing`, `recentNumbers`, `signalsByGame`, методы `fetchAndAnalyze(game)`, `processResults` и уведомляет UI.
+### 1.2. Сохранить и перенести
+1. **RouletteService**
+   - `fetchLiveRouletteGames()`: HTTP GET `https://gizbo.casino/api/cms/v2/games/UAH`, фильтрация по `collections: live_roulette` и провайдерам.
+   - `fetchRestrictions()`: HTTP GET `https://gizbo.casino/api/v2/games/restrictions?country=UA` (batch-запрос), исключение запрещённых игр.
+   - **extractWebSocketParams(game)**:
+     - `webViewService.loadUrl(BASE_URL + game.playUrl)`
+     - `await webViewService.waitForLoad(timeout: 15s)`
+     - `iframeSrc = await webViewService.evalJavaScript("document.querySelector('iframe')?.src")`
+     - `optionsEncoded = parseQueryParam(iframeSrc, 'options')`
+     - `optionsJson = utf8.decode(base64.decode(optionsEncoded))`
+     - `gameUrl = jsonDecode(optionsJson)['launch_options']['game_url']`
+     - `paramsEncoded = parseQueryParam(gameUrl, 'params')`
+     - `paramsMap = parseSemicolonDelimited(base64.decode(paramsEncoded))` → `tableId`, `vtId`, `uaLaunchId`
+     - `webViewService.loadUrl(gameUrl)` → `await webViewService.waitForLoad(timeout: 10s)`
+     - `evoSessionId = await webViewService.evalJavaScript("localStorage.getItem('evo.video.sessionId')")`
+     - `rawCookies = await webViewService.evalJavaScript("document.cookie")` → строка cookie
+     - `cookieHeader = mergeCookies(rawCookies, 'EVOSESSIONID='+evoSessionId)` для доменов `.gizbo.casino` и `.evo-games.com`
+     - `instance = randomString(6)+"_"+evoSessionId.substring(0,6)+"_"+vtId`
+     - Вернуть `WebSocketParams(tableId, vtId, uaLaunchId, evoSessionId, instance, cookieHeader)`.
 
-### 1.3. Что удаляем
-- Windows-специфичные классы и зависимости: `webview_windows`, `flutter_inappwebview`, `window_manager`, файлы `webview_controller_windows.dart`, заглушки `stubs/`
-- Дубли и неиспользуемый код (находить через IDE: файлы без импорта).
-- `RoulettesPoller` (если логику опроса вынесем в SignalsService).
+2. **WebSocketService**
+   - `fetchRecentResults(WebSocketParams params)`:
+     - `wssUrl = params.buildWebSocketUrl()` (например: `wss://royal.evo-games.com/socket?tableId=...&instance=...`)
+     - `channel = IOWebSocketChannel.connect(Uri.parse(wssUrl), headers: {'Cookie': params.cookieHeader, 'Origin': WS_ORIGIN})`
+     - `message = await channel.stream.firstWhere(msg => msg.type == 'roulette.recentResults', timeout: 10s)`
+     - `numbers = parseRecentResults(message)`
+     - `channel.sink.close()` → вернуть `RecentResults(numbers)` или `null` при таймауте/ошибке.
+
+3. **NumberAnalyzer / Signals**
+   - Логика определения отсутствующих дюжин и колонн, поиск паттернов.
+   - Сформированные сигналы с обозначением типа (e.g. "Missing 3rd dozen 5 spins").
+
+### 1.3. Переработать и разделить
+1. **SessionManager (ChangeNotifier)**
+   - Поля: `String? jwtToken`, `String? cookieString` (или Map<String, String>).
+   - Методы:
+     - `Future<void> setSession(String jwt, String cookies)` → save to memory + SharedPreferences.
+     - `bool hasValidSession()` → decode JWT exp claim (`jwt_decoder`), сравнение с DateTime.now().
+     - `Future<bool> validateSession()` → HTTP GET `/api/v2/player`, вернуть 200 → валидна.
+     - `Future<void> clearSession()` → delete from SharedPreferences + clear memory + WebViewService.clearCookies().
+   - События: `notifyListeners()` при изменении session data.
+
+2. **WebViewService**
+   - Singleton, зависит от SessionManager.
+   - Поля: `late WebViewController controller`, `CookieManager cookieManager`.
+   - Методы:
+     - `attachController(WebViewController ctrl)` → сохранить контроллер.
+     - `Future<void> init({bool restoreSession=true})`:
+       - Если `restoreSession` и sessionManager.hasValidSession():
+         - `for each cookie in sessionManager.cookieString.parseList()` → `cookieManager.setCookie(domain, name, value)`
+         - `controller.loadRequest(Uri.parse(BASE_URL))` (фоново) и `await waitForLoad()`.
+     - `Future<void> loadUrl(String url)` → `controller.loadRequest(...)` + `await waitForLoad()`.
+     - `Future<String> evalJavaScript(String script)` → `controller.runJavaScriptReturningResult(script)` cast to String.
+     - `Future<void> waitForLoad({Duration timeout})` → Completer + NavigationDelegate.onPageFinished.
+     - `Future<void> setCookiesFromString(String cookies)` → разбить и `cookieManager.setCookie` на нужные домены: `.gizbo.casino`, `.evo-games.com`.
+   - Позиционирование WebView:
+     - В `MyApp` внутри `Stack`:
+       ```dart
+       Offstage(
+         offstage: true,
+         child: WebViewWidget(controller: webViewService.controller),
+       )
+       ```
+     - WebView живёт всё время, не уничтожается при смене экранов.
+
+3. **SignalsService (ChangeNotifier)**
+   - Зависимости: RouletteService, WebSocketService, NumberAnalyzer, SessionManager.
+   - Поля:
+     - `Set<String> isAnalyzing` (game IDs в процессе).
+     - `Map<String, List<int>> recentNumbers`.
+     - `Map<String, List<Signal>> signalsByGame`.
+   - Методы:
+     - `Future<void> fetchAndAnalyze(RouletteGame game)`:
+       - Добавить game.id в isAnalyzing → notifyListeners().
+       - `params = await rouletteService.extractWebSocketParams(game)`.
+       - `results = await webSocketService.fetchRecentResults(params)`.
+       - Удалить game.id из isAnalyzing.
+       - Если results != null:
+         - `recentNumbers[game.id] = results.numbers.take(10).toList()`.
+         - `signals = numberAnalyzer.detectMissingPatterns(results.numbers)`.
+         - `signalsByGame[game.id] = signals`.
+         - При наличии новых сигналов: `soundPlayer.play('alert.wav')` и (опционально) отправка в Telegram (если есть интеграция).
+       - notifyListeners().
+
+4. **UI-разграничение**
+   - **LoginScreen** (`presentation/screens/login/login_screen.dart`):
+     - Показывает WebViewWidget для `BASE_URL`.
+     - Подписка на SessionManager:
+       ```dart
+       sessionManager.addListener(() {
+         if (sessionManager.hasValidSession()) {
+           widget.onLoginSuccess();
+         }
+       });
+       ```
+     - Никакой логики парсинга в экране.
+
+   - **MainScreen** (`presentation/screens/main/main_screen.dart`):
+     - В `initState` вызывает `gamesNotifier.loadGames()` или аналог.
+     - Использует `Consumer<GamesNotifier>` для списка `List<RouletteGame>`.
+     - Для каждой игры строит `RouletteCard`:
+       - Props: `game`, `isAnalyzing: signalsService.isAnalyzing.contains(game.id)`, `recentNumbers: signalsService.recentNumbers[game.id] ?? []`, `signals: signalsService.signalsByGame[game.id] ?? []`, `onConnect: () => signalsService.fetchAndAnalyze(game)`.
+     - Нет парсинга, нет WebView/WebSocket кода.
+
+   - **RouletteCard** (`presentation/widgets/roulette_card.dart`):
+     - Показывает название игры, статус (спиннер при `isAnalyzing`), последние `recentNumbers` (круглые виджеты), иконку/бедж с количеством `signals`.
+     - При tap вызывает `onConnect`.
 
 ---
 
-## 2. Ключевая логика для переноса
-
-1. **Получение списка игр:**
-   - HTTP GET `/api/cms/v2/games/UAH`, фильтрация по collections (live_roulette) и ограничениям из `/api/v2/games/restrictions?country=UA`.
-2. **extractWebSocketParams(game):**
-   - `webViewService.loadUrl(BASE_URL + game.playUrl)`
-   - Ожидание `iframe.src` → `evalJavaScript("document.querySelector('iframe')?.src")`
-   - Base64 decode `options`, JSON parse → получить `game_url`
-   - Base64 decode `params` из game_url → Map с tableId, vtId, uaLaunchId
-   - `webViewService.loadUrl(game_url)`, ждать загрузки → `evalJavaScript("localStorage.getItem('evo.video.sessionId')")`
-   - `evalJavaScript("document.cookie")` → строка всех cookie
-   - Формирование WebSocketParams: `{tableId, vtId, uaLaunchId, evoSessionId, instance, cookieHeader}`
-3. **fetchRecentResults(params):**
-   - `IOWebSocketChannel.connect(params.webSocketUrl, headers: {Cookie: params.cookieHeader, Origin: ORIGIN})`
-   - Слушать стрим, ждать сообщение `roulette.recentResults` → RecentResults.numbers
-   - Таймаут 10s, закрыть канал, вернуть данные или null
-4. **Анализ сигналов:**
-   - Использовать NumberAnalyzer для поиска отсутствующих дюжин/рядов
-   - Сформировать список сигналов
-   - SignalsService сохраняет и нотифицирует UI
-
----
-
-## 3. Новая структура проекта
+## 2. Новая структура каталога
 
 ```plaintext
 lib/
 ├── core/
 │   ├── di/
-│   │   └── service_locator.dart    # Регистрация SessionManager, WebViewService, RouletteService, WebSocketService, SignalsService
-│   └── constants/
-│       └── app_constants.dart     # BASE_URL, WS_ORIGIN, JWT_KEY, таймауты
+│   │   └── service_locator.dart
+│   └── constants/app_constants.dart
 ├── services/
-│   ├── session/
-│   │   └── session_manager.dart   # ChangeNotifier, jwtToken, cookies, hasValidSession(), setSession(), clearSession()
-│   ├── webview/
-│   │   └── webview_service.dart   # Инициализация и фоновые загрузки WebView, JS eval, cookie manager
-│   ├── roulette/
-│   │   └── roulette_service.dart  # fetchLiveRouletteGames(), extractWebSocketParams(game)
-│   ├── websocket/
-│   │   └── websocket_service.dart # fetchRecentResults(params)
-│   └── signals/
-│       └── signals_service.dart   # fetchAndAnalyze(game), processResults, хранение recentNumbers, signalsByGame
+│   ├── session/session_manager.dart
+│   ├── webview/webview_service.dart
+│   ├── roulette/roulette_service.dart
+│   ├── websocket/websocket_service.dart
+│   └── signals/signals_service.dart
 ├── models/
-│   ├── roulette/
-│   │   └── roulette_game.dart     # id, provider, slug, playUrl и др.
-│   └── websocket/
-│       ├── websocket_params.dart  # tableId, vtId, uaLaunchId, evoSessionId, instance, cookieHeader, webSocketUrl
-│       └── recent_results.dart    # List<int> numbers
+│   ├── roulette/roulette_game.dart
+│   └── websocket/{websocket_params.dart, recent_results.dart}
 ├── presentation/
 │   ├── screens/
-│   │   ├── login/
-│   │   │   └── login_screen.dart   # WebView UI + подпись на SessionManager для навигации
-│   │   └── main/
-│   │       └── main_screen.dart    # GridView карточек, context.watch<GamesNotifier>() + context.watch<SignalsService>()
-│   └── widgets/
-│       └── roulette_card.dart     # Презентационный компонент, вызывает signalsService.fetchAndAnalyze(game)
-└── utils/
-    ├── logger.dart
-    └── sound_player.dart
+│   │   ├── login/login_screen.dart
+│   │   └── main/main_screen.dart
+│   └── widgets/roulette_card.dart
+└── utils/{logger.dart, sound_player.dart}
 ```
 
 ---
 
-## 4. Порядок действий для Cursor.ai
+## 3. Подробный план действий для Cursor.ai
 
 1. **Инициализировать новый Flutter-проект** (Android-only).
-2. **Скопировать `.project_rules.yaml`** (этот документ можно игнорировать — правила уже учтены в спецификации).
-3. **Создать структуру каталогов** согласно разделу 3.
-4. **Добавить зависимости**: `webview_flutter`, `get_it`, `provider`, `http`, `web_socket_channel`, `shared_preferences`, `jwt_decoder`.
-5. **Реализовать Service Locator:** вставить код из core/di/service_locator.dart.
-6. **Написать SessionManager** (ChangeNotifier).
-7. **Написать WebViewService**, вставить методы: attachController, loadUrl, waitForLoad, evalJavaScript, setCookiesFromString.
-8. **Рефакторинг RouletteService:** перенести логику fetchLiveRouletteGames и весь метод extractWebSocketParams, заменив прямые ссылки на WebViewController вызовами WebViewService.
-9. **Перенести WebSocketService** без изменений.
-10. **Создать SignalsService** с методами fetchAndAnalyze и структурами состояний.
-11. **Разработать UI:**
-    - **LoginScreen**: подключить hidden WebView, подписаться на SessionManager.
-    - **MainScreen**: обернуть MaterialApp в MultiProvider для SessionManager, RouletteService, SignalsService (или использовать get_it напрямую), реализовать GridView карточек.
-    - **RouletteCard**: принимать props (game, isAnalyzing, recentNumbers, signals, onConnect) и отображать.
-12. **Обновить AndroidManifest.xml**: INTERNET permission, android:exported.
-13. **Тестировать**: логин → список игр → подключение к игре → анализ → сигналы.
+2. **Добавить зависимости:**
+   - `webview_flutter: ^4.x`
+   - `get_it: ^7.x`
+   - `provider: ^6.x`
+   - `http: ^0.13.x`
+   - `web_socket_channel: ^2.x`
+   - `shared_preferences: ^2.x`
+   - `jwt_decoder: ^2.x`
+3. **Настроить Service Locator** в `core/di/service_locator.dart`, зарегистрировать:
+   - SessionManager (singleton)
+   - WebViewService (singleton)
+   - RouletteService (singleton, зависит от SessionManager, WebViewService)
+   - WebSocketService (singleton)
+   - SignalsService (singleton, зависит от RouletteService, WebSocketService, NumberAnalyzer)
+4. **Реализовать `app_constants.dart`** c константами:
+   ```dart
+   const String BASE_URL = 'https://gizbo.casino';
+   const String WS_ORIGIN = 'https://royal.evo-games.com';
+   const String JWT_KEY = 'JWT_AUTH';
+   const int WS_TIMEOUT_SECONDS = 10;
+   ```
+5. **SessionManager:**
+   - Класс `SessionManager extends ChangeNotifier`:
+     - поля: `String? jwtToken; String? cookieString;`
+     - методы: `Future<void> setSession(...)`, `bool hasValidSession()`, `Future<bool> validateSession()`, `Future<void> clearSession()`
+     - хранение в SharedPreferences и `notifyListeners()`.
+6. **WebViewService:**
+   - `WebViewService` с полями `controller`, `cookieManager` и методами:
+     - `attachController`, `init(restoreSession)`, `loadUrl`, `waitForLoad`, `evalJavaScript`, `setCookiesFromString`, `clearCookies`.
+   - Добавить в `MyApp` hidden Offstage `WebViewWidget(controller: webViewService.controller)`.
+7. **RouletteService:**
+   - `Future<List<RouletteGame>> fetchLiveRouletteGames()`
+   - `Future<WebSocketParams> extractWebSocketParams(RouletteGame game)` реализация из раздела 1.2.
+8. **WebSocketService:**
+   - `Future<RecentResults?> fetchRecentResults(WebSocketParams params)` с IOWebSocketChannel.
+9. **SignalsService:**
+   - Поля: `Set<String> isAnalyzing; Map<String,List<int>> recentNumbers; Map<String,List<Signal>> signalsByGame;`
+   - Метод `Future<void> fetchAndAnalyze(RouletteGame game)` и `notifyListeners()`.
+10. **UI:**
+   - `main.dart`: `setupServiceLocator(); runApp(MyApp());`
+   - `LoginScreen`: WebView для `BASE_URL`, подписка на SessionManager.
+   - `MainScreen`: MultiProvider или get_it, `Consumer<SignalsService>` + `GridView` карточек.
+   - `RouletteCard`: презентация и `onConnect` колбэк.
+11. **AndroidManifest:**
+   - `<uses-permission android:name="android.permission.INTERNET" />`
+   - `android:exported="true"` для MainActivity.
+12. **Тестирование:**
+   - Логин + проверка Session
+   - Получение списка игр
+   - Извлечение и анализ WebSocketParams
+   - Подключение к WebSocket и отображение recentNumbers
+   - Генерация сигналов и звуковые/Telegram уведомления (если актуально).
 
 ---
 
-Этот документ содержит всю информацию анализа и чёткий план, который Cursor.ai сможет использовать для автоматизированного создания проекта. Разбей каждое действие на мелкие задачи и генерируй код по шагам.
+Этот документ полностью отражает анализ и этапы рефакторинга. Cursor.ai может использовать его как «дорожную карту» для создания нового Android-only проекта, копируя и адаптируя существующий код, удаляя Windows-специфику и выделяя сервисный и UI-слои.
