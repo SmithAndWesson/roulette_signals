@@ -21,7 +21,7 @@ class SoundPlayer {
         await _player.resume();
       }
     } catch (e, st) {
-      Logger.error('Ошибка воспроизведения звука', e, st);
+      Logger.error('Ошибка воспроизведения звука', e);
     }
   }
 }

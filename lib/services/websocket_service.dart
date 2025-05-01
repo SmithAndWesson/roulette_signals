@@ -56,11 +56,11 @@ class WebSocketService {
             // если нужен только ПЕРВЫЙ recentResults – можно тут же unsub:
             // sub.cancel();
           } catch (e, st) {
-            Logger.error('Не смог распарсить recentResults', e, st);
+            Logger.error('Не смог распарсить recentResults', e);
           }
         },
         onError: (error, st) {
-          Logger.error('Ошибка WebSocket', error, st);
+          Logger.error('Ошибка WebSocket', error);
           if (!completer.isCompleted) completer.complete(null);
         },
         onDone: () {

@@ -1,91 +1,46 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:roulette_signals/models/game_models.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:roulette_signals/core/di/service_locator.dart';
 import 'package:roulette_signals/presentation/screens/login_screen.dart';
 import 'package:roulette_signals/presentation/screens/main_screen.dart';
-import 'package:roulette_signals/providers/games_notifier.dart';
-import 'package:roulette_signals/utils/expiry_watcher.dart';
+import 'package:roulette_signals/providers/session_provider.dart';
 import 'package:roulette_signals/utils/logger.dart';
-import 'package:roulette_signals/webview/app_overlay.dart';
-import 'dart:io' show Platform;
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:roulette_signals/models/game_models.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  Logger.init();
 
-  runApp(const MyApp());
-
-  // Запускаем проверку после инициализации приложения
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    ExpiryWatcher.i.start();
-  });
+  runApp(
+    const ProviderScope(
+      child: MyApp(),
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+class MyApp extends ConsumerWidget {
+  const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => GamesNotifier()),
-      ],
-      child: MaterialApp(
-        title: 'Roulette Signals',
-        debugShowCheckedModeBanner: false,
-        navigatorKey: AppOverlay.navigatorKey,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.green,
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          cardTheme: CardTheme(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          appBarTheme: AppBarTheme(
-            elevation: 0,
-            centerTitle: true,
-            backgroundColor: Colors.transparent,
-          ),
-          floatingActionButtonTheme: FloatingActionButtonThemeData(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
-        home: const MyHome(),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sessionState = ref.watch(sessionProvider);
+
+    return MaterialApp(
+      title: 'Roulette Signals',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
-    );
-  }
-}
-
-class MyHome extends StatefulWidget {
-  const MyHome({Key? key}) : super(key: key);
-
-  @override
-  State<MyHome> createState() => _MyHomeState();
-}
-
-class _MyHomeState extends State<MyHome> {
-  void _handleLoginSuccess(AuthResponse response) {
-    Logger.info('Успешный вход: ${response.jwtToken}');
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (context) => MainScreen(authResponse: response)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LoginScreen(
-      onLoginSuccess: _handleLoginSuccess,
+      home: sessionState.isLoggedIn
+          ? MainScreen(authResponse: sessionState.authResponse!)
+          : LoginScreen(
+              onLoginSuccess: (authResponse) {
+                ref.read(sessionProvider.notifier).handleLoginSuccess(
+                      jwtToken: authResponse.jwtToken,
+                      evoSessionId: authResponse.evoSessionId,
+                    );
+              },
+            ),
     );
   }
 }

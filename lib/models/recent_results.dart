@@ -4,8 +4,8 @@ class RecentResults {
 
   RecentResults({
     required this.numbers,
-    required this.timestamp,
-  });
+    DateTime? timestamp,
+  }) : timestamp = timestamp ?? DateTime.now();
 
   factory RecentResults.fromJson(Map<String, dynamic> json) {
     // final args = json['args'];

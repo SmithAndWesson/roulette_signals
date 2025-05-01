@@ -2,8 +2,7 @@ import 'package:http/http.dart' as http;
 import 'package:roulette_signals/models/roulette_game.dart';
 import 'package:roulette_signals/models/websocket_params.dart';
 import 'package:roulette_signals/utils/logger.dart';
-import 'package:roulette_signals/webview/webview_controller.dart';
-import 'package:roulette_signals/webview/webview_factory.dart';
+import 'package:roulette_signals/services/webview/webview_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -18,6 +17,7 @@ class RouletteService {
       'https://gizbo.casino/batch?base[]=api/v2/player&base[]=api/player/stats&base[]=api/v2/player/settings&base[]=api/v3/auth_provider_settings?country=UA&base[]=api/v3/exchange_rates&base[]=api/v3/fixed_exchange_rates&base[]=api/v4/player/limits&base[]=api/v2/games/restrictions?country=UA';
 
   static bool _firstDelayDone = false;
+  final _webViewService = WebViewService();
 
   List<RouletteGame>? _cachedGames;
   DateTime? _lastFetchTime;
@@ -125,27 +125,30 @@ class RouletteService {
     return result;
   }
 
-  Future<String> _waitIframeSrc(AppWebViewController c,
+  Future<String> _waitIframeSrc(WebViewController controller,
       {Duration timeout = const Duration(seconds: 30)}) async {
     final deadline = DateTime.now().add(timeout);
 
     while (DateTime.now().isBefore(deadline)) {
-      final src =
-          await c.executeScript("document.querySelector('iframe')?.src ?? ''");
-      if (src.isNotEmpty && src.contains('http'))
+      final src = await controller.runJavaScriptReturningResult(
+        "document.querySelector('iframe')?.src ?? ''",
+      ) as String;
+      if (src.isNotEmpty && src.contains('http')) {
         return src.replaceAll('"', '').trim();
+      }
       await Future.delayed(const Duration(milliseconds: 250));
     }
     throw Exception('iframe не найден (таймаут ${timeout.inSeconds} с)');
   }
 
-  Future<String> _waitEvoSessionId(AppWebViewController c,
+  Future<String> _waitEvoSessionId(WebViewController controller,
       {Duration maxWait = const Duration(seconds: 30)}) async {
     final deadline = DateTime.now().add(maxWait);
     while (DateTime.now().isBefore(deadline)) {
       await Future.delayed(const Duration(seconds: 5));
-      final id = await c
-          .executeScript("localStorage.getItem('evo.video.sessionId') ?? ''");
+      final id = await controller.runJavaScriptReturningResult(
+        "localStorage.getItem('evo.video.sessionId') ?? ''",
+      ) as String;
       if (id.isNotEmpty) return id;
       await Future.delayed(const Duration(milliseconds: 250));
     }
@@ -153,11 +156,13 @@ class RouletteService {
   }
 
   Future<WebSocketParams> extractWebSocketParams(RouletteGame game) async {
-    final controller = createWebViewController();
     try {
+      await _webViewService.init();
+      final controller = _webViewService.controller;
+
       final prefs = await SharedPreferences.getInstance();
       final savedCookies = prefs.getString('all_cookies') ?? '';
-      await controller.initialize();
+
       if (Platform.isAndroid) {
         final cm = WebViewCookieManager();
         for (final e in savedCookies.split(';')) {
@@ -178,21 +183,18 @@ class RouletteService {
           ));
         }
       } else {
-        // Устанавливаем сохранённые cookies для gizbo.casino
-        await controller.executeScript('''
-        document.cookie = "$savedCookies";
-      ''');
+        await controller.runJavaScript('''
+          document.cookie = "$savedCookies";
+        ''');
       }
 
       // Загружаем страницу игры
       final gamePageUrl = 'https://gizbo.casino${game.playUrl}';
       Logger.info('Load game page: $gamePageUrl');
-      await controller.loadUrl(gamePageUrl);
+      await controller.loadRequest(Uri.parse(gamePageUrl));
 
-      // Ждем загрузки страницы и появления iframe
-      await controller.loadingState
-          .firstWhere((s) => s == LoadingState.navigationCompleted)
-          .timeout(const Duration(seconds: 60));
+      // Ждем загрузки страницы
+      await Future.delayed(const Duration(seconds: 5));
 
       // ⏱ 2. ждём появления iframe.src, но не дольше 10 с
       var iframeSrc = await _waitIframeSrc(controller);
@@ -235,14 +237,14 @@ class RouletteService {
       final clientVersion = '6.20250415.70424.51183-8793aee83a';
 
       // 1️⃣ после того как ты распарсил gameUrl, ПЕРЕХОДИМ на royal.evo-games.com
-      await controller.loadUrl(gameUrl); // любой URL этого домена
+      await controller.loadRequest(Uri.parse(gameUrl));
 
       // 2️⃣ ждём появления localStorage['evo.video.sessionId']
       final evoSessionId = await _waitEvoSessionId(controller);
 
       // 3️⃣ Берём ВСЕ куки текущего документа
-      final rawCookies = await controller.executeScript('document.cookie');
-      // например: "cdn=https://static.egcdn.com; lang=en; locale=en-GB; EVOSESSIONID=…"
+      final rawCookies = await controller
+          .runJavaScriptReturningResult('document.cookie') as String;
 
       // 4️⃣ Подстраховка: убеждаемся, что EVOSESSIONID есть;
       //   если нет — дописываем вручную из evoSessionId
@@ -267,9 +269,6 @@ class RouletteService {
     } catch (e) {
       Logger.error('Ошибка извлечения параметров WebSocket', e);
       rethrow;
-    } finally {
-      // Закрываем WebView
-      await controller.dispose();
     }
   }
 }

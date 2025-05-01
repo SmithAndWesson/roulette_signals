@@ -1,21 +1,24 @@
-class WebSocketParams {
-  final String tableId;
-  final String vtId;
-  final String uaLaunchId;
-  final String clientVersion;
-  final String evoSessionId;
-  final String instance;
-  final String cookieHeader;
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-  WebSocketParams({
-    required this.tableId,
-    required this.vtId,
-    required this.uaLaunchId,
-    required this.clientVersion,
-    required this.evoSessionId,
-    required this.instance,
-    required this.cookieHeader,
-  });
+part 'websocket_params.freezed.dart';
+part 'websocket_params.g.dart';
+
+@freezed
+class WebSocketParams with _$WebSocketParams {
+  const WebSocketParams._();
+
+  const factory WebSocketParams({
+    required String tableId,
+    required String vtId,
+    required String uaLaunchId,
+    required String clientVersion,
+    required String evoSessionId,
+    required String instance,
+    required String cookieHeader,
+  }) = _WebSocketParams;
+
+  factory WebSocketParams.fromJson(Map<String, dynamic> json) =>
+      _$WebSocketParamsFromJson(json);
 
   String get webSocketUrl {
     return 'wss://royal.evo-games.com/public/roulette/player/game/$tableId/socket'
